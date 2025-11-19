@@ -1,6 +1,6 @@
 //! Split pane layout and buffer rendering
 
-use crate::ansi_background::{AnsiBackground, DEFAULT_BACKGROUND_FADE};
+use crate::ansi_background::AnsiBackground;
 use crate::ansi::AnsiParser;
 use crate::cursor::SelectionMode;
 use crate::editor::BufferMetadata;
@@ -48,6 +48,7 @@ impl SplitRenderer {
         event_logs: &mut HashMap<BufferId, EventLog>,
         theme: &crate::theme::Theme,
         ansi_background: Option<&AnsiBackground>,
+        background_fade: f32,
         lsp_waiting: bool,
         large_file_threshold_bytes: u64,
         line_wrap: bool,
@@ -176,6 +177,7 @@ impl SplitRenderer {
                     is_active,
                     theme,
                     ansi_background,
+                    background_fade,
                     lsp_waiting,
                     line_wrap,
                     estimated_line_length,
@@ -400,6 +402,7 @@ impl SplitRenderer {
         is_active: bool,
         theme: &crate::theme::Theme,
         ansi_background: Option<&AnsiBackground>,
+        background_fade: f32,
         lsp_waiting: bool,
         line_wrap: bool,
         estimated_line_length: usize,
@@ -1226,7 +1229,7 @@ impl SplitRenderer {
                 bg,
                 theme.editor_bg,
                 theme.editor_fg,
-                DEFAULT_BACKGROUND_FADE,
+                background_fade,
                 background_x_offset,
                 starting_line_num,
             );

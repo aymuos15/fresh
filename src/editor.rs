@@ -258,6 +258,9 @@ pub struct Editor {
     /// Source path for the currently loaded ANSI background
     ansi_background_path: Option<PathBuf>,
 
+    /// Blend amount for the ANSI background (0..1)
+    background_fade: f32,
+
     /// Keybinding resolver
     keybindings: KeybindingResolver,
 
@@ -716,6 +719,7 @@ impl Editor {
             theme,
             ansi_background: None,
             ansi_background_path: None,
+            background_fade: crate::ansi_background::DEFAULT_BACKGROUND_FADE,
             keybindings,
             clipboard: String::new(),
             should_quit: false,
@@ -7011,6 +7015,14 @@ impl Editor {
                     default_path,
                 );
             }
+            Action::SetBackgroundBlend => {
+                let default_amount = format!("{:.2}", self.background_fade);
+                self.start_prompt_with_initial_text(
+                    "Background blend (0-1): ".to_string(),
+                    PromptType::SetBackgroundBlend,
+                    default_amount,
+                );
+            }
             Action::LspCompletion => {
                 self.request_completion()?;
             }
@@ -7650,6 +7662,25 @@ impl Editor {
                                     "Failed to load background: {}",
                                     e
                                 ));
+                            }
+                        }
+                        PromptType::SetBackgroundBlend => {
+                            let parsed = input.trim().parse::<f32>();
+                            match parsed {
+                                Ok(val) => {
+                                    let clamped = val.clamp(0.0, 1.0);
+                                    self.background_fade = clamped;
+                                    self.set_status_message(format!(
+                                        "Background blend set to {:.2}",
+                                        clamped
+                                    ));
+                                }
+                                Err(_) => {
+                                    self.set_status_message(format!(
+                                        "Invalid blend value: {}",
+                                        input
+                                    ));
+                                }
                             }
                         }
                         PromptType::RecordMacro => {
@@ -9226,6 +9257,7 @@ impl Editor {
             &mut self.event_logs,
             &self.theme,
             self.ansi_background.as_ref(),
+            self.background_fade,
             lsp_waiting,
             self.config.editor.large_file_threshold_bytes,
             self.config.editor.line_wrap,

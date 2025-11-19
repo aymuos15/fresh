@@ -355,6 +355,12 @@ pub fn get_all_commands() -> Vec<Command> {
             action: Action::SetBackground,
             contexts: vec![KeyContext::Normal],
         },
+        Command {
+            name: "Set Background Blend".to_string(),
+            description: "Adjust how strongly the background shows through (0-1)".to_string(),
+            action: Action::SetBackgroundBlend,
+            contexts: vec![KeyContext::Normal],
+        },
         // Note: Command Palette is intentionally not in the command list
         // to avoid confusion when it's already open (use Ctrl+P or Ctrl+/ to toggle)
         // Search and replace

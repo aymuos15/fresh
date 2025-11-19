@@ -879,6 +879,12 @@ impl Config {
                         args: HashMap::new(),
                         when: None,
                     },
+                    MenuItem::Action {
+                        label: "Set Background Blend...".to_string(),
+                        action: "set_background_blend".to_string(),
+                        args: HashMap::new(),
+                        when: None,
+                    },
                     MenuItem::Separator { separator: true },
                     MenuItem::Action {
                         label: "Split Horizontal".to_string(),

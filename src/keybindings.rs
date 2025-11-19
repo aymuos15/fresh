@@ -331,6 +331,7 @@ pub enum Action {
     // View toggles
     ToggleLineNumbers,
     SetBackground,
+    SetBackgroundBlend,
 
     // Config operations
     DumpConfig,
@@ -574,6 +575,7 @@ impl Action {
 
             "toggle_line_numbers" => Some(Action::ToggleLineNumbers),
             "set_background" => Some(Action::SetBackground),
+            "set_background_blend" => Some(Action::SetBackgroundBlend),
 
             "dump_config" => Some(Action::DumpConfig),
 
@@ -1705,6 +1707,7 @@ impl KeybindingResolver {
             Action::ToggleInlayHints => "Toggle inlay hints".to_string(),
             Action::ToggleLineNumbers => "Toggle line numbers".to_string(),
             Action::SetBackground => "Set ANSI background file".to_string(),
+            Action::SetBackgroundBlend => "Set background blend ratio".to_string(),
             Action::DumpConfig => "Dump config to file".to_string(),
             Action::Search => "Search for text in buffer".to_string(),
             Action::FindNext => "Find next search match".to_string(),

@@ -26,6 +26,8 @@ pub enum PromptType {
     GotoLine,
     /// Choose an ANSI background file
     SetBackgroundFile,
+    /// Set background blend ratio (0-1)
+    SetBackgroundBlend,
     /// Plugin-controlled prompt with custom type identifier
     /// The string identifier is used to filter hooks in plugin code
     Plugin { custom_type: String },
