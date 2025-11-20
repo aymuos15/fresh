@@ -27,6 +27,7 @@ impl StatusBarRenderer {
         area: Rect,
         state: &mut EditorState,
         status_message: &Option<String>,
+        plugin_status_message: &Option<String>,
         lsp_status: &str,
         theme: &crate::theme::Theme,
         display_name: &str,
@@ -37,6 +38,7 @@ impl StatusBarRenderer {
             area,
             state,
             status_message,
+            plugin_status_message,
             lsp_status,
             theme,
             display_name,
@@ -105,6 +107,7 @@ impl StatusBarRenderer {
         area: Rect,
         state: &mut EditorState,
         status_message: &Option<String>,
+        plugin_status_message: &Option<String>,
         lsp_status: &str,
         theme: &crate::theme::Theme,
         display_name: &str,
@@ -184,11 +187,28 @@ impl StatusBarRenderer {
             String::new()
         };
 
-        let left_status = if let Some(msg) = status_message {
-            format!("{filename}{modified} | Ln {line}, Col {col}{diagnostics_summary}{cursor_count_indicator}{lsp_indicator} | {msg}")
+        let mut message_parts: Vec<&str> = Vec::new();
+        if let Some(msg) = status_message {
+            if !msg.is_empty() {
+                message_parts.push(msg);
+            }
+        }
+        if let Some(msg) = plugin_status_message {
+            if !msg.is_empty() {
+                message_parts.push(msg);
+            }
+        }
+
+        let message_suffix = if message_parts.is_empty() {
+            String::new()
         } else {
-            format!("{filename}{modified} | Ln {line}, Col {col}{diagnostics_summary}{cursor_count_indicator}{lsp_indicator}")
+            format!(" | {}", message_parts.join(" | "))
         };
+
+        let base_status = format!(
+            "{filename}{modified} | Ln {line}, Col {col}{diagnostics_summary}{cursor_count_indicator}{lsp_indicator}"
+        );
+        let left_status = format!("{base_status}{message_suffix}");
 
         // Build Command Palette indicator for right side
         // Always show Command Palette indicator on the right side

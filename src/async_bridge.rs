@@ -161,6 +161,12 @@ pub enum AsyncMessage {
         language: String,
         status: LspServerStatus,
     },
+    /// Generic notification from an LSP server
+    CustomNotification {
+        language: String,
+        method: String,
+        params: Option<Value>,
+    },
     /// Response for a plugin-initiated LSP request
     PluginLspResponse {
         language: String,

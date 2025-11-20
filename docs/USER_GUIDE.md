@@ -80,6 +80,10 @@ Fresh's functionality can be extended with plugins written in TypeScript. Fresh 
 *   **Git Grep:** Interactively search through your Git repository.
 *   **Git Find File:** Quickly find and open files in your Git repository.
 
+### Clangd helper plugin
+
+Fresh ships `plugins/clangd_support.ts` with the source tree; see `plugins/clangd_support.md` for an overview of the plugin commands and how it surfaces clangd-specific notifications in the status bar.
+
 ## Configuration
 
 Fresh is configured using a `config.json` file located in `~/.config/fresh/config.json`.

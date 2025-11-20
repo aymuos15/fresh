@@ -1,6 +1,6 @@
+use crate::common::fake_lsp::FakeLspServer;
 use crate::common::fixtures::TestFixture;
 use crate::common::harness::EditorTestHarness;
-use crate::common::fake_lsp::FakeLspServer;
 use crate::common::tracing::init_tracing_from_env;
 use crossterm::event::{KeyCode, KeyModifiers};
 use fresh::config::Config;
@@ -1672,6 +1672,76 @@ editor.setStatus("Panel cleanup test plugin loaded");
     );
 }
 
+/// Ensure the clangd plugin reacts to file-status notifications
+#[test]
+fn test_clangd_plugin_file_status_notification() -> std::io::Result<()> {
+    init_tracing_from_env();
+    let _fake_server = FakeLspServer::spawn()?;
+
+    let temp_dir = tempfile::TempDir::new().unwrap();
+    let project_root = temp_dir.path().join("project_root");
+    fs::create_dir(&project_root).unwrap();
+
+    let plugins_dir = project_root.join("plugins");
+    fs::create_dir(&plugins_dir).unwrap();
+    let plugin_source = std::env::current_dir()
+        .unwrap()
+        .join("plugins/clangd_support.ts");
+    fs::copy(&plugin_source, plugins_dir.join("clangd_support.ts")).unwrap();
+
+    let src_dir = project_root.join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    let source_file = src_dir.join("main.cpp");
+    fs::write(&source_file, "int main() { return 0; }\n").unwrap();
+
+    let mut config = Config::default();
+    config.lsp.insert(
+        "cpp".to_string(),
+        LspServerConfig {
+            command: FakeLspServer::script_path().to_string_lossy().to_string(),
+            args: vec![],
+            enabled: true,
+            process_limits: ProcessLimits::default(),
+        },
+    );
+
+    let mut harness = EditorTestHarness::with_config_and_working_dir(
+        120,
+        30,
+        config,
+        project_root.clone(),
+    )
+    .unwrap();
+
+    harness.open_file(&source_file)?;
+    harness.render()?;
+    for _ in 0..10 {
+        std::thread::sleep(Duration::from_millis(100));
+        let _ = harness.editor_mut().process_async_messages();
+        harness.render()?;
+    }
+
+    let mut seen_status = false;
+    for _ in 0..20 {
+        std::thread::sleep(Duration::from_millis(50));
+        let _ = harness.editor_mut().process_async_messages();
+        harness.render()?;
+        if let Some(msg) = harness.editor().get_status_message() {
+            if msg == "Clangd file status: ready" {
+                seen_status = true;
+                break;
+            }
+        }
+    }
+
+    assert!(
+        seen_status,
+        "Expected clangd file status notification to set the plugin status"
+    );
+
+    Ok(())
+}
+
 /// Ensure the clangd plugin uses editor.sendLspRequest successfully
 #[test]
 fn test_clangd_plugin_switch_source_header() -> std::io::Result<()> {
@@ -1700,22 +1770,16 @@ fn test_clangd_plugin_switch_source_header() -> std::io::Result<()> {
     config.lsp.insert(
         "cpp".to_string(),
         LspServerConfig {
-            command: FakeLspServer::script_path()
-                .to_string_lossy()
-                .to_string(),
+            command: FakeLspServer::script_path().to_string_lossy().to_string(),
             args: vec![],
             enabled: true,
             process_limits: ProcessLimits::default(),
         },
     );
 
-    let mut harness = EditorTestHarness::with_config_and_working_dir(
-        120,
-        30,
-        config,
-        project_root.clone(),
-    )
-    .unwrap();
+    let mut harness =
+        EditorTestHarness::with_config_and_working_dir(120, 30, config, project_root.clone())
+            .unwrap();
 
     harness.open_file(&source_file)?;
     harness.render()?;
@@ -1728,9 +1792,7 @@ fn test_clangd_plugin_switch_source_header() -> std::io::Result<()> {
     harness
         .send_key(KeyCode::Char('p'), KeyModifiers::CONTROL)
         .unwrap();
-    harness
-        .type_text("Clangd: Switch Source/Header")
-        .unwrap();
+    harness.type_text("Clangd: Switch Source/Header").unwrap();
     harness
         .send_key(KeyCode::Enter, KeyModifiers::NONE)
         .unwrap();
@@ -1749,6 +1811,13 @@ fn test_clangd_plugin_switch_source_header() -> std::io::Result<()> {
     assert!(
         screen.contains("Clangd: opened corresponding file"),
         "Expected clangd status message"
+    );
+    assert_eq!(
+        harness
+            .editor()
+            .get_status_message()
+            .map(|msg| msg.as_str()),
+        Some("Clangd: opened corresponding file")
     );
 
     Ok(())

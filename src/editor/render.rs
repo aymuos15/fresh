@@ -255,6 +255,7 @@ impl Editor {
             .map(|m| m.display_name.clone())
             .unwrap_or_else(|| "[No Name]".to_string());
         let status_message = self.status_message.clone();
+        let plugin_status_message = self.plugin_status_message.clone();
         let prompt = self.prompt.clone();
         let lsp_status = self.lsp_status.clone();
         let theme = self.theme.clone();
@@ -266,6 +267,7 @@ impl Editor {
             main_chunks[status_bar_idx],
             self.active_state_mut(), // Use the mutable reference
             &status_message,
+            &plugin_status_message,
             &lsp_status,
             &theme,
             &display_name,

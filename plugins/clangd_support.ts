@@ -50,17 +50,21 @@ function fileUriToPath(uri: string): string {
   return path;
 }
 
+function setClangdStatus(message: string): void {
+  editor.setStatus(message);
+}
+
 globalThis.clangdSwitchSourceHeader = async function(): Promise<void> {
   const bufferId = editor.getActiveBufferId();
   const path = editor.getBufferPath(bufferId);
   if (!path) {
-    editor.setStatus("Clangd: there is no active file to switch");
+    setClangdStatus("Clangd: there is no active file to switch");
     return;
   }
 
   const language = detectLanguage(path);
   if (!language) {
-    editor.setStatus("Clangd: unsupported file type for switch header");
+    setClangdStatus("Clangd: unsupported file type for switch header");
     return;
   }
 
@@ -74,12 +78,12 @@ globalThis.clangdSwitchSourceHeader = async function(): Promise<void> {
     if (typeof result === "string" && result.length > 0) {
       const targetPath = fileUriToPath(result);
       editor.openFile(targetPath, 0, 0);
-      editor.setStatus("Clangd: opened corresponding file");
+      setClangdStatus("Clangd: opened corresponding file");
       return;
     }
-    editor.setStatus("Clangd: no matching header/source found");
+    setClangdStatus("Clangd: no matching header/source found");
   } catch (err) {
-    editor.setStatus(`Clangd switch source/header failed: ${err}`);
+    setClangdStatus(`Clangd switch source/header failed: ${err}`);
     editor.debug(`clangdSwitchSourceHeader error: ${err}`);
   }
 };
@@ -102,14 +106,14 @@ globalThis.clangdOpenProjectConfig = function(): void {
     const configPath = editor.pathJoin(dir, ".clangd");
     if (editor.fileExists(configPath)) {
       editor.openFile(configPath, 0, 0);
-      editor.setStatus("Opened .clangd configuration");
+      setClangdStatus("Opened .clangd configuration");
       opened = true;
       break;
     }
   }
 
   if (!opened) {
-    editor.setStatus("Could not find .clangd configuration in workspace");
+    setClangdStatus("Could not find .clangd configuration in workspace");
   }
 };
 
@@ -127,4 +131,29 @@ editor.registerCommand(
   "normal"
 );
 
-editor.setStatus("Clangd support plugin loaded (switch header + config commands)");
+setClangdStatus("Clangd support plugin loaded (switch header + config commands)");
+
+globalThis.onClangdCustomNotification = function(payload: {
+  language: string;
+  method: string;
+  params: Record<string, unknown> | null;
+}): void {
+  if (!payload || payload.language !== "cpp") {
+    return;
+  }
+
+  editor.debug(
+    `clangd notification ${payload.method}: ${JSON.stringify(payload.params)}`,
+  );
+
+  if (payload.method === "textDocument/clangd.fileStatus" && payload.params) {
+    const status = (payload.params as any).status ?? "unknown";
+    editor.debug(`Clangd file status: ${JSON.stringify(status)}`);
+    setClangdStatus(`Clangd file status: ${status}`);
+  } else if (payload.method === "$/memoryUsage" && payload.params) {
+    const usage = (payload.params as any).used ?? "unknown";
+    editor.debug(`Clangd memory usage: ${usage}`);
+  }
+};
+
+editor.on("lsp/custom_notification", "onClangdCustomNotification");

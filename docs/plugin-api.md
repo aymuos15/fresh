@@ -266,6 +266,8 @@ Display a transient message in the editor's status bar
 The message will be shown until the next status update or user action.
 Use for feedback on completed operations (e.g., "File saved", "2 matches found").
 
+Plugins write their own status slot that is rendered after the built-in file/diagnostic indicators. `get_status_message()` prefers plugin-provided text when it is set, and calling `setStatus("")` clears the plugin slot so core messages regain prominence.
+
 ```typescript
 setStatus(message: string): void
 ```
@@ -1311,4 +1313,3 @@ setVirtualBufferContent(buffer_id: number, entries: TextPropertyEntry[]): boolea
 |------|------|-------------|
 | `buffer_id` | `number` | ID of the virtual buffer |
 | `entries` | `TextPropertyEntry[]` | Array of text entries with properties |
-

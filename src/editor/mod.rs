@@ -98,6 +98,9 @@ pub struct Editor {
     /// Status message (shown in status bar)
     status_message: Option<String>,
 
+    /// Plugin-provided status message (displayed alongside the core status)
+    plugin_status_message: Option<String>,
+
     /// Help renderer
     help_renderer: HelpRenderer,
 
@@ -445,6 +448,7 @@ impl Editor {
             clipboard: String::new(),
             should_quit: false,
             status_message: None,
+            plugin_status_message: None,
             help_renderer: HelpRenderer::new(),
             prompt: None,
             terminal_width: width,
@@ -2244,12 +2248,15 @@ impl Editor {
 
     /// Set a status message to display in the status bar
     pub fn set_status_message(&mut self, message: String) {
+        self.plugin_status_message = None;
         self.status_message = Some(message);
     }
 
     /// Get the current status message
     pub fn get_status_message(&self) -> Option<&String> {
-        self.status_message.as_ref()
+        self.plugin_status_message
+            .as_ref()
+            .or_else(|| self.status_message.as_ref())
     }
 
     /// Update prompt suggestions based on current input
@@ -2646,6 +2653,19 @@ impl Editor {
                         stdout.len(),
                         stderr.len()
                     );
+                }
+                AsyncMessage::CustomNotification {
+                    language,
+                    method,
+                    params,
+                } => {
+                    tracing::debug!("Custom LSP notification {} from {}", method, language);
+                    let payload = serde_json::json!({
+                        "language": language,
+                        "method": method,
+                        "params": params,
+                    });
+                    self.emit_event("lsp/custom_notification", payload);
                 }
                 AsyncMessage::PluginLspResponse {
                     language: _,
@@ -3141,7 +3161,11 @@ impl Editor {
                 }
             }
             PluginCommand::SetStatus { message } => {
-                self.status_message = Some(message);
+                if message.trim().is_empty() {
+                    self.plugin_status_message = None;
+                } else {
+                    self.plugin_status_message = Some(message);
+                }
             }
             PluginCommand::RegisterCommand { command } => {
                 self.command_registry.read().unwrap().register(command);

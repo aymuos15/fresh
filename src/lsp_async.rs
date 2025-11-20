@@ -2535,7 +2535,12 @@ impl LspTask {
                 }
             }
             _ => {
-                tracing::debug!("Unhandled notification: {}", notification.method);
+                tracing::debug!("Forwarding notification {} to plugins", notification.method);
+                let _ = self.async_tx.send(AsyncMessage::CustomNotification {
+                    language: self.language.clone(),
+                    method: notification.method.clone(),
+                    params: notification.params,
+                });
             }
         }
 
@@ -3348,11 +3353,7 @@ impl LspHandle {
                 Ok(())
             }
             Err(e) => {
-                tracing::error!(
-                    "Failed to enqueue plugin request {}: {}",
-                    request_id,
-                    e
-                );
+                tracing::error!("Failed to enqueue plugin request {}: {}", request_id, e);
                 Err("Failed to send plugin LSP request".to_string())
             }
         }
