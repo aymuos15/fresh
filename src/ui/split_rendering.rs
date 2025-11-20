@@ -5,10 +5,10 @@ use crate::ansi_background::AnsiBackground;
 use crate::cursor::SelectionMode;
 use crate::editor::BufferMetadata;
 use crate::event::{BufferId, EventLog, SplitDirection};
-use crate::line_wrapping::{wrap_line, WrapConfig};
 use crate::plugin_api::ViewTransformPayload;
 use crate::split::SplitManager;
 use crate::state::{EditorState, ViewMode};
+use crate::text_buffer::Buffer;
 use crate::ui::tabs::TabsRenderer;
 use crate::virtual_text::VirtualTextPosition;
 use crate::view::flatten_tokens;
@@ -544,43 +544,206 @@ impl SplitRenderer {
         view_transform: Option<ViewTransformPayload>,
         estimated_line_length: usize,
         visible_count: usize,
+        line_wrap_enabled: bool,
+        content_width: usize,
+        gutter_width: usize,
     ) -> ViewData {
-        if let Some(vt) = view_transform {
-            let (text, mapping) = flatten_tokens(&vt.tokens);
-            return ViewData {
-                lines: Self::build_view_lines(&text),
-                mapping,
-            };
+        // Build base token stream from source
+        let base_tokens = Self::build_base_tokens(
+            &mut state.buffer,
+            state.viewport.top_byte,
+            estimated_line_length,
+            visible_count,
+        );
+
+        // Use plugin transform if available, otherwise use base tokens
+        let mut tokens = view_transform
+            .map(|vt| vt.tokens)
+            .unwrap_or(base_tokens);
+
+        // Apply wrapping transform if enabled
+        if line_wrap_enabled {
+            tokens = Self::apply_wrapping_transform(tokens, content_width, gutter_width);
         }
 
-        let mut text = String::new();
-        let mut mapping = Vec::new();
-        let mut iter = state
-            .buffer
-            .line_iterator(state.viewport.top_byte, estimated_line_length);
+        // Convert tokens to text + mapping
+        let (text, mapping) = flatten_tokens(&tokens);
+
+        ViewData {
+            lines: Self::build_view_lines(&text),
+            mapping,
+        }
+    }
+
+    fn build_base_tokens(
+        buffer: &mut Buffer,
+        top_byte: usize,
+        estimated_line_length: usize,
+        visible_count: usize,
+    ) -> Vec<crate::plugin_api::ViewTokenWire> {
+        use crate::plugin_api::{ViewTokenWire, ViewTokenWireKind};
+
+        let mut tokens = Vec::new();
+        let mut iter = buffer.line_iterator(top_byte, estimated_line_length);
         let mut lines_seen = 0usize;
         let max_lines = visible_count.saturating_add(4);
+
         while lines_seen < max_lines {
             if let Some((line_start, line_content)) = iter.next() {
                 let mut byte_offset = 0usize;
                 for ch in line_content.chars() {
-                    text.push(ch);
-                    mapping.push(Some(line_start + byte_offset));
-                    byte_offset += ch.len_utf8();
+                    let ch_len = ch.len_utf8();
+                    let source_offset = Some(line_start + byte_offset);
+
+                    match ch {
+                        '\n' => {
+                            tokens.push(ViewTokenWire {
+                                source_offset,
+                                kind: ViewTokenWireKind::Newline,
+                            });
+                        }
+                        ' ' => {
+                            tokens.push(ViewTokenWire {
+                                source_offset,
+                                kind: ViewTokenWireKind::Space,
+                            });
+                        }
+                        _ => {
+                            // Accumulate consecutive non-space/non-newline chars into Text tokens
+                            if let Some(last) = tokens.last_mut() {
+                                if let ViewTokenWireKind::Text(ref mut s) = last.kind {
+                                    // Extend existing Text token if contiguous
+                                    let expected_offset = last.source_offset.map(|o| o + s.len());
+                                    if expected_offset == Some(line_start + byte_offset) {
+                                        s.push(ch);
+                                        byte_offset += ch_len;
+                                        continue;
+                                    }
+                                }
+                            }
+                            tokens.push(ViewTokenWire {
+                                source_offset,
+                                kind: ViewTokenWireKind::Text(ch.to_string()),
+                            });
+                        }
+                    }
+                    byte_offset += ch_len;
                 }
                 lines_seen += 1;
             } else {
                 break;
             }
         }
-        if text.is_empty() {
-            mapping.push(Some(state.viewport.top_byte));
+
+        // Handle empty buffer
+        if tokens.is_empty() {
+            tokens.push(ViewTokenWire {
+                source_offset: Some(top_byte),
+                kind: ViewTokenWireKind::Text(String::new()),
+            });
         }
 
-        ViewData {
-            lines: Self::build_view_lines(&text),
-            mapping,
+        tokens
+    }
+
+    fn apply_wrapping_transform(
+        tokens: Vec<crate::plugin_api::ViewTokenWire>,
+        content_width: usize,
+        gutter_width: usize,
+    ) -> Vec<crate::plugin_api::ViewTokenWire> {
+        use crate::plugin_api::{ViewTokenWire, ViewTokenWireKind};
+
+        let mut wrapped = Vec::new();
+        let mut current_line_width = 0;
+
+        // Calculate available width (accounting for gutter on first line only)
+        let available_width = content_width.saturating_sub(gutter_width);
+
+        for token in tokens {
+            match &token.kind {
+                ViewTokenWireKind::Newline => {
+                    // Real newlines always break the line
+                    wrapped.push(token);
+                    current_line_width = 0;
+                }
+                ViewTokenWireKind::Text(text) => {
+                    let text_len = text.chars().count();
+
+                    // If this token would exceed line width, insert Break before it
+                    if current_line_width > 0 && current_line_width + text_len > available_width {
+                        wrapped.push(ViewTokenWire {
+                            source_offset: None,
+                            kind: ViewTokenWireKind::Break,
+                        });
+                        current_line_width = 0;
+                    }
+
+                    // If token itself is longer than line width, split it
+                    if text_len > available_width {
+                        let chars: Vec<char> = text.chars().collect();
+                        let mut char_idx = 0;
+                        let source_base = token.source_offset;
+
+                        while char_idx < chars.len() {
+                            let remaining = chars.len() - char_idx;
+                            let chunk_size = remaining.min(available_width - current_line_width);
+
+                            if chunk_size == 0 {
+                                // Need to break to next line
+                                wrapped.push(ViewTokenWire {
+                                    source_offset: None,
+                                    kind: ViewTokenWireKind::Break,
+                                });
+                                current_line_width = 0;
+                                continue;
+                            }
+
+                            let chunk: String = chars[char_idx..char_idx + chunk_size].iter().collect();
+                            let chunk_source = source_base.map(|b| b + char_idx);
+
+                            wrapped.push(ViewTokenWire {
+                                source_offset: chunk_source,
+                                kind: ViewTokenWireKind::Text(chunk),
+                            });
+
+                            current_line_width += chunk_size;
+                            char_idx += chunk_size;
+
+                            // If we filled the line, break
+                            if current_line_width >= available_width {
+                                wrapped.push(ViewTokenWire {
+                                    source_offset: None,
+                                    kind: ViewTokenWireKind::Break,
+                                });
+                                current_line_width = 0;
+                            }
+                        }
+                    } else {
+                        wrapped.push(token);
+                        current_line_width += text_len;
+                    }
+                }
+                ViewTokenWireKind::Space => {
+                    // Spaces count toward line width
+                    if current_line_width + 1 > available_width {
+                        wrapped.push(ViewTokenWire {
+                            source_offset: None,
+                            kind: ViewTokenWireKind::Break,
+                        });
+                        current_line_width = 0;
+                    }
+                    wrapped.push(token);
+                    current_line_width += 1;
+                }
+                ViewTokenWireKind::Break => {
+                    // Pass through existing breaks
+                    wrapped.push(token);
+                    current_line_width = 0;
+                }
+            }
         }
+
+        wrapped
     }
 
     fn build_view_lines(view_text: &str) -> Vec<ViewLine> {
@@ -1301,102 +1464,30 @@ impl SplitRenderer {
                 }
             }
 
+            // ViewLines are already wrapped (Break tokens became newlines in flatten_tokens)
+            // so each line is one visual line - no need to wrap again
+            let current_y = lines.len() as u16;
+            last_seg_y = Some(current_y);
+
             if !line_spans.is_empty() {
-                let config = if line_wrap {
-                    WrapConfig::new(render_area.width as usize, gutter_width, true)
-                } else {
-                    WrapConfig::no_wrap(gutter_width)
-                };
-
-                // Separate gutter spans from content spans
-                // Count characters in gutter to find where content starts
-                let mut gutter_char_count = 0;
-                let mut gutter_span_count = 0;
-                for span in &line_spans {
-                    let span_len = span.content.chars().count();
-                    if gutter_char_count + span_len <= gutter_width {
-                        gutter_char_count += span_len;
-                        gutter_span_count += 1;
-                    } else {
-                        break;
+                // Find cursor position and track last visible x by iterating through line_view_map
+                // Note: line_view_map includes both gutter and content character mappings
+                for (screen_x, source_offset) in line_view_map.iter().enumerate() {
+                    if let Some(src) = source_offset {
+                        // Check if this is the primary cursor position
+                        if *src == primary_cursor_position {
+                            cursor_screen_x = screen_x as u16;
+                            cursor_screen_y = current_y;
+                            have_cursor = true;
+                        }
+                        // Track the last visible position (rightmost character with a source mapping)
+                        // This is used for EOF cursor placement
+                        last_visible_x = screen_x as u16;
                     }
                 }
-
-                // Extract only the content spans (skip gutter spans)
-                let content_spans = &line_spans[gutter_span_count..];
-                let line_text: String =
-                    content_spans.iter().map(|s| s.content.as_ref()).collect();
-                let content_view_map = if line_view_map.len() > gutter_char_count {
-                    line_view_map[gutter_char_count..].to_vec()
-                } else {
-                    Vec::new()
-                };
-
-                let segments = wrap_line(&line_text, &config);
-
-                // Render each wrapped segment
-                for (seg_idx, segment) in segments.iter().enumerate() {
-                    let mut segment_spans = vec![];
-
-                    // Add gutter for each segment
-                    if seg_idx == 0 {
-                        // First segment gets the actual gutter (line numbers, etc.)
-                        segment_spans.extend_from_slice(&line_spans[..gutter_span_count]);
-                    } else {
-                        // Continuation lines get spaces in the gutter area
-                        push_span_with_map(
-                            &mut segment_spans,
-                            &mut line_view_map,
-                            " ".repeat(gutter_width),
-                            Style::default(),
-                            None,
-                        );
-                    }
-
-                    let segment_text = segment.text.clone();
-                    _last_seg_width = segment_text.chars().count();
-
-                    let styled_spans = Self::apply_styles_to_segment(
-                        &segment_text,
-                        content_spans,
-                        segment.start_char_offset,
-                        if !line_wrap { left_col } else { 0 },
-                    );
-                    segment_spans.extend(styled_spans);
-
-                    let current_y = lines.len() as u16;
-                    last_seg_y = Some(current_y);
-                    for (i, ch) in segment_text.chars().enumerate() {
-                        if ch == '\n' {
-                            continue;
-                        }
-                        if let Some(Some(src)) =
-                            content_view_map.get(segment.start_char_offset + i)
-                        {
-                            let screen_x = i as u16;
-                            last_visible_x = screen_x;
-                            if *src == primary_cursor_position {
-                                cursor_screen_x = screen_x;
-                                cursor_screen_y = current_y;
-                                have_cursor = true;
-                            }
-                        }
-                    }
-
-                    lines.push(Line::from(segment_spans));
-                    lines_rendered += 1;
-
-                    if lines_rendered >= visible_line_count {
-                        break;
-                    }
-                }
-
-                lines_rendered = lines_rendered.saturating_sub(1);
-            } else {
-                let current_y = lines.len() as u16;
-                last_seg_y = Some(current_y);
-                lines.push(Line::from(line_spans));
             }
+
+            lines.push(Line::from(line_spans));
 
             // Update last_line_end and check for cursor on newline BEFORE the break check
             // This ensures the last visible line's metadata is captured
@@ -1501,10 +1592,6 @@ impl SplitRenderer {
 
         let visible_count = state.viewport.visible_line_count();
 
-        let view_data = Self::build_view_data(state, view_transform, estimated_line_length, visible_count);
-        let view_anchor =
-            Self::calculate_view_anchor(&view_data.lines, &view_data.mapping, state.viewport.top_byte);
-
         let buffer_len = state.buffer.len();
         let estimated_lines = (buffer_len / 80).max(1);
         state.margins.update_width_for_buffer(estimated_lines);
@@ -1512,6 +1599,18 @@ impl SplitRenderer {
 
         let compose_layout = Self::calculate_compose_layout(area, &view_mode, compose_width);
         let render_area = compose_layout.render_area;
+
+        let view_data = Self::build_view_data(
+            state,
+            view_transform,
+            estimated_line_length,
+            visible_count,
+            line_wrap,
+            render_area.width as usize,
+            gutter_width,
+        );
+        let view_anchor =
+            Self::calculate_view_anchor(&view_data.lines, &view_data.mapping, state.viewport.top_byte);
         Self::render_compose_margins(frame, area, &compose_layout, &view_mode, theme);
 
         let selection = Self::selection_context(state);
@@ -1641,77 +1740,6 @@ impl SplitRenderer {
     /// * `line_spans` - The original styled spans for the entire line
     /// * `segment_start_offset` - Character offset where this segment starts in the original line
     /// * `scroll_offset` - Additional offset for horizontal scrolling (non-wrap mode)
-    fn apply_styles_to_segment(
-        segment_text: &str,
-        line_spans: &[Span<'static>],
-        segment_start_offset: usize,
-        _scroll_offset: usize,
-    ) -> Vec<Span<'static>> {
-        if line_spans.is_empty() {
-            return vec![Span::raw(segment_text.to_string())];
-        }
-
-        let mut result_spans = Vec::new();
-        let segment_chars: Vec<char> = segment_text.chars().collect();
-
-        if segment_chars.is_empty() {
-            return vec![Span::raw(String::new())];
-        }
-
-        // Build a map of character position -> style
-        let mut char_styles: Vec<(char, Style)> = Vec::new();
-
-        for span in line_spans {
-            let span_text = span.content.as_ref();
-            let style = span.style;
-
-            for ch in span_text.chars() {
-                char_styles.push((ch, style));
-            }
-        }
-
-        // Extract the styles for this segment
-        let mut current_text = String::new();
-        let mut current_style = None;
-
-        for (i, &ch) in segment_chars.iter().enumerate() {
-            // segment_start_offset is relative to the line_text (which already accounts for scrolling),
-            // so don't add scroll_offset again - it would double-count the horizontal scrolling
-            let original_pos = segment_start_offset + i;
-
-            let style_for_char = if original_pos < char_styles.len() {
-                char_styles[original_pos].1
-            } else {
-                Style::default()
-            };
-
-            // If style changed, flush current span and start new one
-            if let Some(prev_style) = current_style {
-                if prev_style != style_for_char {
-                    result_spans.push(Span::styled(current_text.clone(), prev_style));
-                    current_text.clear();
-                    current_style = Some(style_for_char);
-                }
-            } else {
-                current_style = Some(style_for_char);
-            }
-
-            current_text.push(ch);
-        }
-
-        // Flush remaining text
-        if !current_text.is_empty() {
-            if let Some(style) = current_style {
-                result_spans.push(Span::styled(current_text, style));
-            }
-        }
-
-        if result_spans.is_empty() {
-            vec![Span::raw(String::new())]
-        } else {
-            result_spans
-        }
-    }
 
     fn apply_background_to_lines(
         lines: &mut Vec<Line<'static>>,
@@ -1809,9 +1837,17 @@ mod tests {
 
         let render_area = Rect::new(0, 0, 20, 4);
         let visible_count = state.viewport.visible_line_count();
+        let gutter_width = state.margins.left_total_width();
 
-        let view_data =
-            SplitRenderer::build_view_data(&mut state, None, content.len().max(1), visible_count);
+        let view_data = SplitRenderer::build_view_data(
+            &mut state,
+            None,
+            content.len().max(1),
+            visible_count,
+            false, // line wrap disabled for tests
+            render_area.width as usize,
+            gutter_width,
+        );
         let view_anchor =
             SplitRenderer::calculate_view_anchor(&view_data.lines, &view_data.mapping, 0);
 

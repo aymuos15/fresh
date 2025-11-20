@@ -79,6 +79,9 @@ pub enum ViewTokenWireKind {
     Text(String),
     Newline,
     Space,
+    /// Visual line break inserted by wrapping (not from source)
+    /// Always has source_offset: None
+    Break,
 }
 
 /// Wire-format view token with optional source mapping

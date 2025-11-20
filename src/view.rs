@@ -138,6 +138,11 @@ pub fn flatten_tokens(tokens: &[crate::plugin_api::ViewTokenWire]) -> (String, V
                 view_text.push(' ');
                 mapping.push(token.source_offset);
             }
+            crate::plugin_api::ViewTokenWireKind::Break => {
+                view_text.push('\n');
+                // Break tokens are synthetic, always have None mapping
+                mapping.push(None);
+            }
         }
     }
 

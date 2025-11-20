@@ -50,9 +50,44 @@ Goal: keep Markdown source intact and visible, render a semi-WYSIWYG view (style
 ## Multi-view Support
 - Each split/tab stores its own view transform + layout hints. The same buffer can be rendered differently in each split; submitting a transform includes `split_id`, so plugins can tailor the view per pane without altering buffer state.
 
-## Implementation Plan
-1) **Pipeline plumbing**: keep the unified view path in the renderer (always render from a view stream + mapping; identity is synthesized when no transform is available). Remove renderer-side wrapping logic for compose mode; wrapping is injected as a transform.
-2) **State & ops**: per-split compose mode, compose/max width, optional line-number hiding; ops for toggle/set width/submitViewTransform with `split_id`.
-3) **Renderer**: consume the transformed stream, center with margins, mapping-aware cursor/selection/overlays; support per-split transforms.
-4) **Plugin**: incrementally parse Markdown; apply soft-break rules, styling, tables/lists/headers/links/code blocks; emit transforms and layout hints; bind visual-line navigation in compose mode.
-5) **Validation**: ensure newlines can be rewritten to whitespace via transform; verify multi-split rendering shows different views of the same buffer; keep fallbacks working (identity view) when the plugin is absent.***
+## Implementation Status
+
+### ✅ Completed
+- **Per-split view state** (`src/split.rs:68-146`): view mode, compose width, column guides, transforms
+- **View transform API** (`src/ts_runtime.rs`, `src/editor/mod.rs:3376-3390`): `op_fresh_submit_view_transform()` with buffer_id + split_id
+- **View token types** (`src/plugin_api.rs:76-99`): `Text`, `Newline`, `Space` wire format with per-char source mapping
+- **View pipeline infrastructure** (`src/ui/split_rendering.rs:542-607`): `build_view_data()` constructs view from transform or identity
+- **Compose mode toggle** (`src/editor/input.rs:605-655`): per-split Source/Compose switching with line number hiding
+- **Compose width setting** (`src/editor/input.rs:656-667, 1365-1388`): prompt-based width configuration
+- **Compose layout & centering** (`src/ui/split_rendering.rs:634-693`): centered column with tinted margins
+- **Layout hints API** (`src/plugin_api.rs:68-74`, `src/editor/mod.rs:3360-3375`): `SetLayoutHints` for compose width and column guides
+- **Cursor mapping** (`src/ui/split_rendering.rs:609-632, 821-1471`): source → view → screen mapping with fallback logic (19 commits fixing edge cases)
+- **Token flattening** (`src/view.rs:114-145`): `flatten_tokens()` converts wire format to view lines
+
+### 🚧 Partially Implemented
+- **Wrapping as transform**: wrapping happens in renderer (`split_rendering.rs:1305-1393`), not as a token-inserting transform step. Plugins cannot control wrapping strategy.
+- **Base token stream**: identity view uses raw string, not token format. Only plugin transforms use tokens. No unified token pipeline.
+
+### ❌ Not Yet Started
+- **Multi-pass transforms**: design allows chaining; current implementation supports single transform per viewport.
+- **Visual-line navigation**: up/down should operate on display lines in Compose mode; currently behaves like Source mode.
+- **Column guides rendering**: stored in state but not drawn.
+- **Disable renderer wrapping in Compose**: wrapping still uses `viewport.line_wrap_enabled` instead of plugin-controlled breaks.
+- **Markdown plugin** (`markdown_compose`): no plugin yet. Soft breaks, structure rendering (headers, lists, code blocks), styling all missing.
+
+### Critical Gap
+The design envisions:
+1. Source → base token stream (Text/Newline/Space)
+2. Plugin transforms rewrite tokens (Newline → Space for soft breaks)
+3. Layout transform inserts break tokens for wrapping
+4. Renderer draws final token stream
+
+**Current reality**: source → raw string (identity) OR plugin tokens, then renderer wraps during line construction. Plugins can't fully control text flow—no soft-break detection, no token-based wrapping.
+
+## Next Steps
+1) **Unify token pipeline**: make identity view use token stream (`Text`/`Newline`/`Space` from source scan).
+2) **Wrapping transform**: move `wrap_line()` logic to transform stage; emit break tokens instead of wrapping during render.
+3) **Disable renderer wrapping**: when `view_transform` present, skip built-in wrap and rely on plugin breaks.
+4) **Column guides**: render vertical lines at `compose_column_guides` positions.
+5) **Visual navigation**: bind up/down to visual-line movement in Compose mode.
+6) **Markdown plugin**: parse incrementally, rewrite paragraph newlines to spaces, emit structure styling, detect hard breaks.
