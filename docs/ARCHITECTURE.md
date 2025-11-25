@@ -149,167 +149,37 @@ Fresh solves this with a hybrid architecture combining two mechanisms:
 
 #### 1. Virtual Buffer with Content
 
-The first layer is a virtual buffer containing the actual file content:
-
-```typescript
-// Create buffer with historical or current content
-const content = await editor.spawnProcess("git", ["show", `${commit}:${path}`]);
-const bufferId = await editor.createVirtualBuffer({
-  name: `*annotated:${basename(path)}*`,  // Extension enables syntax highlighting
-  mode: "annotated-view",
-  read_only: true,
-  entries: [{ text: content.stdout, properties: { commit, path } }],
-});
-```
-
-**Key properties:**
+The first layer is a virtual buffer containing the actual file content. Key properties:
 - Buffer name includes file extension (e.g., `*blame:main.rs*`) for automatic language detection
 - Content is pure source code, enabling correct tree-sitter parsing
 - Text properties can store metadata without affecting content
 
 #### 2. ViewTokenWire with Source Mapping
 
-The `ViewTokenWire` structure enables precise control over line numbering:
+The `ViewTokenWire` structure (in `src/plugin_api.rs`) enables precise control over line numbering via its `source_offset` field:
 
-```rust
-pub struct ViewTokenWire {
-    /// Source byte offset - None for injected annotations
-    pub source_offset: Option<usize>,
-    pub kind: ViewTokenWireKind,
-    /// Optional styling for injected content
-    pub style: Option<ViewTokenStyle>,
-}
-
-pub struct ViewTokenStyle {
-    pub fg: Option<(u8, u8, u8)>,
-    pub bg: Option<(u8, u8, u8)>,
-    pub bold: bool,
-    pub italic: bool,
-}
-```
-
-The `source_offset` field is the key mechanism:
-- **`Some(byte_position)`:** Token maps to source content. The renderer:
-  - Includes it in line number calculation
-  - Applies syntax highlighting from that byte position
-  - Enables cursor positioning and selection
-- **`None`:** Token is injected annotation. The renderer:
-  - Skips line number increment (shows blank in gutter)
-  - Applies `style` field if present
-  - Does not participate in source-based features
+- **`Some(byte_position)`:** Token maps to source content. The renderer includes it in line number calculation, applies syntax highlighting, and enables cursor positioning.
+- **`None`:** Token is injected annotation. The renderer skips line number increment (shows blank in gutter), applies the `style` field if present, and does not participate in source-based features.
 
 #### 3. View Transform Hook
 
-Plugins register for the `view_transform_request` hook, called each render frame:
-
-```typescript
-editor.on("view_transform_request", "onViewTransform");
-
-globalThis.onViewTransform = function(args: {
-  buffer_id: number;
-  split_id: number;
-  viewport_start: number;
-  viewport_end: number;
-  tokens: ViewTokenWire[];
-}) {
-  // Only transform our annotated buffers
-  if (!isAnnotatedBuffer(args.buffer_id)) return;
-
-  const transformed: ViewTokenWire[] = [];
-
-  for (const block of getAnnotationBlocks(args.buffer_id)) {
-    // Inject header (no source mapping = no line number)
-    injectHeader(transformed, block, {
-      source_offset: null,
-      style: { bg: [50, 50, 55], fg: [220, 220, 220], bold: true }
-    });
-
-    // Pass through content tokens (preserve source mapping)
-    for (const token of args.tokens) {
-      if (tokenInBlock(token, block)) {
-        transformed.push(token);  // Unchanged - keeps line numbers & highlighting
-      }
-    }
-  }
-
-  editor.submitViewTransform(
-    args.buffer_id,
-    args.split_id,
-    args.viewport_start,
-    args.viewport_end,
-    transformed,
-    null
-  );
-};
-```
+Plugins register for the `view_transform_request` hook, called each render frame. The plugin receives the current viewport's tokens and can inject headers with `source_offset: None`, passing through content tokens unchanged to preserve line numbers and highlighting.
 
 ### How Line Numbers Work
 
-The renderer in `split_rendering.rs` handles line numbers via the `is_continuation` check:
-
-```rust
-// Check if previous character had no source mapping
-let is_continuation = if line_view_offset > 0 {
-    view_mapping.get(line_view_offset - 1) == Some(&None)
-} else {
-    false
-};
-
-// Only increment line number for content lines
-if !is_continuation && lines_rendered > 0 {
-    current_source_line_num += 1;
-}
-```
-
-This means:
-- Lines starting after a `source_offset: None` newline show blank in the line number gutter
-- Lines starting after a `source_offset: Some(_)` newline increment and display the line number
-- The result: annotation headers have no line numbers, content lines have correct source line numbers
+The renderer in `split_rendering.rs` checks if the previous character had no source mapping. Lines starting after a `source_offset: None` newline show blank in the line number gutter. Lines starting after a `source_offset: Some(_)` newline increment and display the line number.
 
 ### How Syntax Highlighting Works
 
-Syntax highlighting is applied based on `source_offset`:
-
-```rust
-let highlight_color = byte_pos.and_then(|bp| {
-    highlight_spans
-        .iter()
-        .find(|span| span.range.contains(&bp))
-        .map(|span| span.color)
-});
-```
-
-- Content tokens have `source_offset: Some(byte)` → looked up in highlight spans → colored
-- Annotation tokens have `source_offset: None` → no highlight lookup → uses `style` field instead
+Syntax highlighting is applied based on `source_offset`. Content tokens with `Some(byte)` are looked up in highlight spans and colored. Annotation tokens with `None` skip highlight lookup and use the `style` field instead.
 
 ### Use Cases
 
-#### Git Blame
+**Git Blame:** Virtual buffer contains historical file content from `git show commit:path`. Annotations are commit headers above each blame block. Line numbers match historical file lines.
 
-```
-Buffer: Historical file content from `git show commit:path`
-Annotations: Commit headers above each blame block
-Line numbers: Match historical file lines
-Highlighting: Based on file language
-```
+**Code Coverage:** Buffer contains current file content. Annotations are coverage percentage headers above functions. Line numbers match current file.
 
-#### Code Coverage
-
-```
-Buffer: Current file content
-Annotations: Coverage percentage headers above functions
-Line numbers: Match current file
-Highlighting: Normal syntax + coverage overlays
-```
-
-#### Inline Documentation
-
-```
-Buffer: Source code
-Annotations: Doc comments rendered as styled blocks
-Line numbers: Only for code lines
-Highlighting: Code highlighted, docs styled differently
-```
+**Inline Documentation:** Buffer contains source code. Annotations are doc comments rendered as styled blocks. Line numbers only appear for code lines.
 
 ### Performance Considerations
 
@@ -468,142 +338,28 @@ If the viewport operates on source lines, scroll limits are wrong (can't scroll 
 
 The solution: **viewport and visual navigation operate on the Layout Layer**.
 
-### Core Data Structures
+### Key Data Structures
 
-```rust
-/// A single display line with source mapping
-pub struct ViewLine {
-    pub text: String,
-    /// Maps each character to source byte (None = injected)
-    pub char_mappings: Vec<Option<usize>>,
-    pub char_styles: Vec<Option<ViewTokenStyle>>,
-    pub line_start: LineStart,
-    pub ends_with_newline: bool,
-}
+See source files for current implementations:
 
-/// The complete layout for a view (computed from view_transform)
-pub struct Layout {
-    /// All display lines
-    pub lines: Vec<ViewLine>,
-    /// Fast lookup: source byte → view line index
-    byte_to_view_line: BTreeMap<usize, usize>,
-}
+- **ViewLine** (`src/ui/view_pipeline.rs`): A single display line with `char_mappings` mapping each character to source byte (None = injected), plus styles and tab expansion info.
 
-/// View state for a single split (independent of buffer)
-pub struct SplitViewState {
-    /// Cursor positions (source bytes, but per-view)
-    pub cursors: Cursors,
-    /// Scroll position in layout coordinates
-    pub viewport: Viewport,
-    /// Plugin-provided view transform (git blame, etc)
-    pub view_transform: Option<ViewTransformPayload>,
-    /// Computed layout (from view_transform or base tokens)
-    pub layout: Option<Layout>,
-    /// Display mode
-    pub view_mode: ViewMode,
-}
+- **Layout** (`src/ui/view_pipeline.rs`): Collection of ViewLines for the viewport region, with `byte_to_line` index for fast source byte → view line lookup.
 
-/// Viewport tracks position in layout coordinates
-pub struct Viewport {
-    /// Stable anchor in source bytes (survives layout rebuilds)
-    pub anchor_byte: usize,
-    /// Current top of viewport in view line index
-    pub top_view_line: usize,
-    /// Dimensions
-    pub width: u16,
-    pub height: u16,
-}
+- **SplitViewState** (`src/split.rs`): Per-split state including cursors, viewport, view_transform, layout, and layout_dirty flag.
 
-/// Cursor stays in document coordinates (for editing)
-pub struct Cursor {
-    /// Position in source bytes
-    pub position: usize,
-    /// Preferred visual column (for ↑/↓ movement)
-    pub preferred_visual_column: Option<usize>,
-}
-```
+- **Viewport** (`src/viewport.rs`): Scroll position (currently `top_byte` in source bytes), dimensions, and scroll offset settings.
 
-### Layout Building Strategy: Lazy but Required
+- **Cursor** (`src/cursor.rs`): Position in source bytes with optional selection anchor.
 
-Following VSCode's ViewModel pattern, the Layout is built **lazily but is never optional**:
+### Layout Building Strategy
 
-```rust
-impl SplitViewState {
-    /// Get or build the layout. Always succeeds - no fallback to buffer.
-    fn ensure_layout(&mut self, buffer: &Buffer) -> &Layout {
-        if self.layout.is_none() || self.layout_dirty {
-            self.rebuild_layout(buffer);
-        }
-        self.layout.as_ref().unwrap()
-    }
-}
-```
-
-**Key principle**: Every operation that needs Layout calls `ensure_layout()` first. There is no "fallback to buffer-based scrolling" - Layout always exists when needed.
+Following VSCode's ViewModel pattern, the Layout is built **lazily but is never optional**. Every operation that needs Layout calls `ensure_layout()` first (see `src/split.rs`). There is no "fallback to buffer-based scrolling" - Layout always exists when needed.
 
 **Layout becomes dirty when:**
 - Buffer content changes (Insert/Delete events)
 - View transform changes (plugin sends new tokens)
 - Scroll would move past current layout's source_range
-
-### The Frame Flow
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│ 1. ANY VIEW OPERATION (scroll, cursor move, render)         │
-│    • Call ensure_layout() first                             │
-│    • If layout is None or dirty:                            │
-│      - Get view transform tokens (from plugin or base)      │
-│      - Convert to ViewLines via ViewLineIterator            │
-│      - Build byte→view_line index                           │
-│      - Store in SplitViewState.layout                       │
-│    • Proceed with operation using valid Layout              │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│ 2. PROCESS INPUT (routed by event type)                     │
-│                                                             │
-│    Scroll Event → SplitViewState:                           │
-│    • ensure_layout()                                        │
-│    • viewport.top_view_line += offset                       │
-│    • Clamp to [0, layout.lines.len() - viewport.height]     │
-│    • Update anchor_byte from layout for stability           │
-│                                                             │
-│    Cursor Move (↑/↓) → SplitViewState:                      │
-│    • ensure_layout()                                        │
-│    • Find cursor's (view_line, visual_col) in layout        │
-│    • Move to adjacent view line, same visual column         │
-│    • Translate back to source byte via char_mappings        │
-│    • Update cursor.position in SplitViewState.cursors       │
-│                                                             │
-│    Cursor Move (←/→/word/etc) → SplitViewState:             │
-│    • Operate directly on source bytes (document layer)      │
-│    • ensure_layout(), then ensure_visible()                 │
-│                                                             │
-│    Edit (insert/delete) → EditorState (shared buffer):      │
-│    • Modify buffer at cursor.position                       │
-│    • Mark ALL views' layouts as dirty                       │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│ 3. ENSURE CURSOR VISIBLE                                    │
-│    • Find cursor byte in layout → view_line_index           │
-│    • If view_line_index outside [top, top+height]:          │
-│      • Adjust top_view_line to center cursor                │
-│    • Update anchor_byte for stability                       │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│ 4. RENDER                                                   │
-│    • for line in layout.lines[top..top+height]:             │
-│        • Render line.text with line.char_styles             │
-│        • Show line number if line has source content        │
-│        • Highlight cursor position if on this line          │
-└─────────────────────────────────────────────────────────────┘
-```
 
 ### Viewport Stability
 
@@ -613,274 +369,108 @@ When the layout changes (edit, view transform update), view line indices shift. 
 2. **On layout rebuild**: Find anchor_byte in new layout → new top_view_line
 3. **Clamp if needed**: If anchor_byte no longer exists, clamp to valid range
 
-```rust
-impl Viewport {
-    fn stabilize_after_layout_change(&mut self, layout: &Layout) {
-        // Find where our anchor landed in the new layout
-        if let Some(&view_line) = layout.byte_to_view_line.get(&self.anchor_byte) {
-            self.top_view_line = view_line;
-        } else {
-            // Anchor byte gone (deleted), find nearest
-            self.top_view_line = layout.find_nearest_view_line(self.anchor_byte);
-        }
-        // Clamp to valid range
-        let max_top = layout.lines.len().saturating_sub(self.height as usize);
-        self.top_view_line = self.top_view_line.min(max_top);
-        // Update anchor to current top line's source byte
-        self.anchor_byte = layout.get_source_byte_for_line(self.top_view_line);
-    }
-}
-```
-
-### WYSIWYG Cursor Movement
-
-For ↑/↓ to work correctly with injected lines:
-
-```rust
-impl Cursor {
-    fn move_vertical(&mut self, direction: i32, layout: &Layout) {
-        // 1. Find current position in layout
-        let (current_view_line, current_visual_col) =
-            layout.source_byte_to_view_position(self.position);
-
-        // 2. Use preferred column if set (for consistent vertical movement)
-        let target_col = self.preferred_visual_column
-            .unwrap_or(current_visual_col);
-
-        // 3. Move to target view line
-        let target_view_line = (current_view_line as i32 + direction)
-            .max(0) as usize;
-        let target_view_line = target_view_line.min(layout.lines.len() - 1);
-
-        // 4. Translate back to source byte
-        if let Some(new_byte) = layout.view_position_to_source_byte(
-            target_view_line,
-            target_col
-        ) {
-            self.position = new_byte;
-        }
-        // If target is injected line, skip to next source line
-
-        // 5. Remember preferred column for subsequent moves
-        self.preferred_visual_column = Some(target_col);
-    }
-}
-```
-
-### Scroll Limits
-
-With the Layout Layer, scroll limits are trivially correct:
-
-```rust
-impl Viewport {
-    fn scroll(&mut self, offset: isize, layout: &Layout) {
-        let new_top = (self.top_view_line as isize + offset)
-            .max(0) as usize;
-        let max_top = layout.lines.len().saturating_sub(self.height as usize);
-        self.top_view_line = new_top.min(max_top);
-
-        // Update anchor for stability
-        self.anchor_byte = layout.get_source_byte_for_line(self.top_view_line);
-    }
-}
-```
-
-No special handling for injected lines - they're just more ViewLines.
-
 ### Scrolling Beyond the Current Layout
 
-The Layout is built from viewport-scoped tokens (for performance). But what happens when the user scrolls past the current layout?
-
-**The Problem:**
-```
-Layout covers view lines 0-50 (from viewport tokens)
-User presses PageDown → wants to see lines 50-100
-But we don't have ViewLines for 50-100 yet!
-```
-
-**The Solution: Layout Expansion**
-
-When scrolling would move past the current layout, we:
+The Layout is built from viewport-scoped tokens (for performance). When scrolling would move past the current layout:
 
 1. **Request new tokens** from the view transform for the target range
 2. **Rebuild layout** to cover the new viewport
 3. **Complete the scroll** using the new layout
 
-```rust
-impl SplitViewState {
-    fn scroll(&mut self, offset: isize, buffer: &Buffer) {
-        let layout = self.layout.as_ref().expect("layout must exist");
-        let target_top = (self.viewport.top_view_line as isize + offset)
-            .max(0) as usize;
-
-        // Check if target is beyond current layout
-        if target_top + self.viewport.height as usize > layout.lines.len() {
-            // Need to rebuild layout for new viewport position
-            // First, estimate source byte for target view line
-            let target_byte = self.estimate_byte_for_view_line(target_top);
-
-            // Request new tokens from target_byte and rebuild layout
-            self.rebuild_layout_from_byte(target_byte, buffer);
-        }
-
-        // Now scroll within the (possibly rebuilt) layout
-        let layout = self.layout.as_ref().unwrap();
-        self.viewport.scroll(offset, layout);
-    }
-}
-```
-
-**Estimating Target Byte:**
-
-When scrolling to view lines we haven't built yet, we estimate the source byte:
-
-```rust
-impl SplitViewState {
-    fn estimate_byte_for_view_line(&self, target_view_line: usize) -> usize {
-        // Use the last known mapping from current layout
-        if let Some(ref layout) = self.layout {
-            if let Some(last_line) = layout.lines.last() {
-                if let Some(last_byte) = last_line.char_mappings.iter().filter_map(|m| *m).last() {
-                    // Estimate: target is N lines past our last known byte
-                    let lines_past = target_view_line.saturating_sub(layout.lines.len());
-                    // Rough estimate: 80 bytes per line average
-                    return last_byte + (lines_past * 80);
-                }
-            }
-        }
-        0
-    }
-}
-```
-
-This estimate doesn't need to be perfect - the view transform will give us correct tokens for whatever range we request.
-
-### Cursor Movement Beyond Layout
-
-Similar handling for cursor movement (all operations happen on SplitViewState):
-
-**PageDown/PageUp:**
-```rust
-impl SplitViewState {
-    fn page_down(&mut self, buffer: &Buffer) {
-        let layout = self.layout.as_ref().expect("layout must exist");
-        let page_size = self.viewport.height as usize;
-        let cursor = self.cursors.primary();
-
-        // Move cursor down by page_size view lines
-        let (current_view_line, visual_col) =
-            layout.source_byte_to_view_position(cursor.position);
-        let target_view_line = current_view_line + page_size;
-
-        // If target is beyond layout, expand it first
-        if target_view_line >= layout.lines.len() {
-            let target_byte = self.estimate_byte_for_view_line(target_view_line);
-            self.rebuild_layout_from_byte(target_byte, buffer);
-        }
-
-        // Now move cursor within the expanded layout
-        let layout = self.layout.as_ref().unwrap();
-        self.cursors.primary_mut().move_to_view_line(target_view_line, visual_col, layout);
-
-        // Ensure cursor is visible (may scroll viewport)
-        self.ensure_cursor_visible();
-    }
-}
-```
-
-**Cursor at End of Layout (↓ key):**
-```rust
-impl SplitViewState {
-    fn cursor_down(&mut self, buffer: &Buffer) {
-        let layout = self.layout.as_ref().expect("layout must exist");
-        let cursor = self.cursors.primary();
-
-        let (current_view_line, visual_col) =
-            layout.source_byte_to_view_position(cursor.position);
-        let target_view_line = current_view_line + 1;
-
-        // At bottom of layout?
-        if target_view_line >= layout.lines.len() {
-            // Check if there's more content in the buffer
-            if layout.has_content_below(buffer.len()) {
-                // Expand layout downward
-                self.expand_layout_down(buffer);
-            } else {
-                // At end of file - stay put or beep
-                return;
-            }
-        }
-
-        // Move cursor in layout
-        let layout = self.layout.as_ref().unwrap();
-        self.cursors.primary_mut().move_to_view_line(target_view_line, visual_col, layout);
-        self.ensure_cursor_visible();
-    }
-}
-```
+The estimate for the target byte doesn't need to be perfect - the view transform will give correct tokens for whatever range is requested.
 
 ### Tracking Total View Lines
 
-To know scroll limits without building the entire layout, we track:
+To know scroll limits without building the entire layout, we track `total_view_lines` and `total_injected_lines` in the Layout struct. The plugin knows how many headers it injects and can report this in the view transform response via `total_injected_lines` in layout hints.
 
-```rust
-pub struct Layout {
-    /// ViewLines for current viewport region
-    pub lines: Vec<ViewLine>,
+## Viewport Ownership and Scrolling
 
-    /// Byte range this layout covers
-    pub source_range: Range<usize>,
+This section documents the authoritative architecture for viewport state and scrolling. The key principle: **SplitViewState.viewport is the single source of truth for scroll position**.
 
-    /// Total view lines in entire document (estimated or exact)
-    pub total_view_lines: usize,
+### The Problem with Duplicate State
 
-    /// How many injected lines exist in entire document
-    /// (reported by view transform or computed)
-    pub total_injected_lines: usize,
-}
+Early implementations had viewport state in two places: `EditorState` (per buffer) and `SplitViewState` (per split). This caused several bugs:
+
+1. **Sync loops**: Changes to one viewport would sync to the other, then sync back, causing flickering
+2. **Stale state**: After cursor movement, scroll position would reset because sync copied old values
+3. **Wrong dimensions**: Editor.render() used EditorState.viewport dimensions before split_rendering resized it, causing incorrect scroll calculations
+
+### The Solution: Single Source of Truth
+
+**SplitViewState.viewport is authoritative.** EditorState should NOT have a viewport (or at most, temporary dimensions for PageDown/PageUp before layout is available).
+
+```
+EditorState (per buffer):
+  └── buffer: PieceTree
+  └── cursors: Cursors (deprecated - use SplitViewState.cursors)
+  └── (NO viewport)
+
+SplitViewState (per split):
+  └── viewport: Viewport      // THE source of truth
+  └── cursors: Cursors        // per-view cursors
+  └── view_transform: Option<...>
+  └── layout: Option<Layout>
 ```
 
-**Computing total_view_lines:**
+### Scrolling Flow
 
-Without view transform:
-```rust
-total_view_lines = buffer.line_count()
+The correct flow for cursor-triggered scrolling:
+
+```
+1. Input Event (↓ key)
+   │
+   ▼
+2. Cursor moves in SplitViewState.cursors
+   │
+   ▼
+3. Render phase begins
+   │
+   ├─► Build view_lines from tokens (with view_transform if present)
+   │
+   ├─► Call ensure_cursor_visible(view_lines, cursor, viewport)
+   │   • Find cursor's position in view_lines (accounts for virtual lines)
+   │   • If cursor outside [top, top+height], adjust top_view_line
+   │   • This is Layout-aware scrolling
+   │
+   ├─► If scrolled, rebuild view_lines for new viewport position
+   │
+   └─► Render view_lines[top..top+height]
 ```
 
-With view transform (plugin reports it):
-```rust
-total_view_lines = buffer.line_count() + total_injected_lines
+**Key insight**: Scrolling must happen DURING render, when view_lines (with virtual lines) are available. Scrolling BEFORE render doesn't know about injected virtual lines.
+
+### Why Layout-Aware Scrolling Matters
+
+Consider git blame with 120 virtual header lines injected at the top:
+
+```
+Source buffer:          Display (with view transform):
+Line 1                  ── Header (virtual) ──
+Line 2                  ── Header (virtual) ──
+Line 3                  ... (120 headers) ...
+                        Line 1  ← cursor here
+                        Line 2
+                        Line 3
 ```
 
-The plugin knows how many headers it injects (e.g., git blame knows number of commit blocks). It reports this in the view transform response:
+Source-based scrolling thinks "cursor is at byte 0, which is source line 1, keep top at line 1". But the display has 120 virtual lines before that! The cursor appears off-screen.
 
-```typescript
-editor.submitViewTransform(
-    buffer_id,
-    split_id,
-    viewport_start,
-    viewport_end,
-    tokens,
-    {
-        compose_width: null,
-        total_injected_lines: blameBlocks.length  // NEW
-    }
-);
-```
+Layout-aware scrolling looks at view_lines: "cursor maps to view_line 121, viewport shows lines 0-30, need to scroll to line 121".
 
-This gives correct scroll limits without building full-document layout.
+### Migration Tasks
 
-### Integration with View Transforms
+To reach the target architecture:
 
-View transforms remain viewport-scoped for performance (only tokenize visible range). The Layout is built from:
+1. **Move cursors to SplitViewState**: Each view has independent cursor positions
+2. **Remove EditorState.viewport**: Or keep only for dimension hints
+3. **Remove sync functions**: No more bidirectional state syncing
+4. **Single scrolling function**: Only Layout-aware `ensure_cursor_visible`
+5. **Scroll during render**: After building view_lines, before rendering
 
-1. **With view transform**: Use cached `ViewTransformPayload.tokens`
-2. **Without view transform**: Build tokens directly from buffer
+### Temporary Workarounds
 
-The key insight: we don't need full-file tokens for correct scroll limits. We need to know **how many view lines exist total**. This can be:
+Until full migration, these workarounds maintain correctness:
 
-- Computed incrementally as user scrolls through file
-- Estimated from buffer line count + known injected line count
-- Reported by plugin as metadata
-
-For most cases, building layout from current viewport tokens + tracking total injected lines is sufficient.
+1. `sync_viewport_from_split_view_state` only syncs DIMENSIONS, not scroll position
+2. `ensure_visible_in_layout` called in render phase with actual view_lines
+3. Editor.render() does NOT call sync_with_cursor (let split_rendering handle it)
