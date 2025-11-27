@@ -13,6 +13,18 @@ use std::io;
 use super::Editor;
 
 impl Editor {
+    // ==================== Menu Helpers ====================
+
+    /// Find a menu by label, searching config menus first then plugin menus.
+    fn find_menu_by_label_mut(&mut self, label: &str) -> Option<&mut crate::config::Menu> {
+        // Check config menus first
+        if let Some(menu) = self.config.menu.menus.iter_mut().find(|m| m.label == label) {
+            return Some(menu);
+        }
+        // Then check plugin menus
+        self.menu_state.plugin_menus.iter_mut().find(|m| m.label == label)
+    }
+
     // ==================== Overlay Commands ====================
 
     /// Handle AddOverlay command
@@ -234,21 +246,7 @@ impl Editor {
         item: crate::config::MenuItem,
         position: MenuPosition,
     ) {
-        // Find the target menu (first in config menus, then plugin menus)
-        let target_menu = self
-            .config
-            .menu
-            .menus
-            .iter_mut()
-            .find(|m| m.label == menu_label)
-            .or_else(|| {
-                self.menu_state
-                    .plugin_menus
-                    .iter_mut()
-                    .find(|m| m.label == menu_label)
-            });
-
-        if let Some(menu) = target_menu {
+        if let Some(menu) = self.find_menu_by_label_mut(&menu_label) {
             // Insert at the specified position
             let insert_idx = match position {
                 MenuPosition::Top => 0,
@@ -352,21 +350,7 @@ impl Editor {
 
     /// Handle RemoveMenuItem command
     pub(super) fn handle_remove_menu_item(&mut self, menu_label: String, item_label: String) {
-        // Find the target menu (first in config menus, then plugin menus)
-        let target_menu = self
-            .config
-            .menu
-            .menus
-            .iter_mut()
-            .find(|m| m.label == menu_label)
-            .or_else(|| {
-                self.menu_state
-                    .plugin_menus
-                    .iter_mut()
-                    .find(|m| m.label == menu_label)
-            });
-
-        if let Some(menu) = target_menu {
+        if let Some(menu) = self.find_menu_by_label_mut(&menu_label) {
             // Remove item with matching label
             let original_len = menu.items.len();
             menu.items.retain(|item| match item {
