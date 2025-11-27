@@ -1,4 +1,28 @@
 use super::*;
+use crate::view::file_tree::TreeNode;
+use std::path::PathBuf;
+
+/// Get the parent directory path from a file tree node.
+/// If the node is a directory, returns its path. If it's a file, returns the parent directory.
+fn get_parent_dir_path(node: &TreeNode) -> PathBuf {
+    if node.is_dir() {
+        node.entry.path.clone()
+    } else {
+        node.entry
+            .path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| node.entry.path.clone())
+    }
+}
+
+/// Generate a timestamp suffix for naming new files/directories.
+fn timestamp_suffix() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}
 
 impl Editor {
     pub fn file_explorer_visible(&self) -> bool {
@@ -279,21 +303,8 @@ impl Editor {
             if let Some(selected_id) = explorer.get_selected() {
                 let node = explorer.tree().get_node(selected_id);
                 if let Some(node) = node {
-                    let parent_path = if node.is_dir() {
-                        node.entry.path.clone()
-                    } else {
-                        node.entry
-                            .path
-                            .parent()
-                            .map(|p| p.to_path_buf())
-                            .unwrap_or_else(|| node.entry.path.clone())
-                    };
-
-                    let timestamp = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs();
-                    let filename = format!("untitled_{}.txt", timestamp);
+                    let parent_path = get_parent_dir_path(node);
+                    let filename = format!("untitled_{}.txt", timestamp_suffix());
                     let file_path = parent_path.join(&filename);
 
                     if let Some(runtime) = &self.tokio_runtime {
@@ -332,21 +343,8 @@ impl Editor {
             if let Some(selected_id) = explorer.get_selected() {
                 let node = explorer.tree().get_node(selected_id);
                 if let Some(node) = node {
-                    let parent_path = if node.is_dir() {
-                        node.entry.path.clone()
-                    } else {
-                        node.entry
-                            .path
-                            .parent()
-                            .map(|p| p.to_path_buf())
-                            .unwrap_or_else(|| node.entry.path.clone())
-                    };
-
-                    let timestamp = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs();
-                    let dirname = format!("New Folder {}", timestamp);
+                    let parent_path = get_parent_dir_path(node);
+                    let dirname = format!("New Folder {}", timestamp_suffix());
                     let dir_path = parent_path.join(&dirname);
 
                     if let Some(runtime) = &self.tokio_runtime {
