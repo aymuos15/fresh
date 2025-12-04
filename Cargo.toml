@@ -88,4 +88,32 @@ split-debuginfo = "packed"
 inherits = "release"
 lto = "thin"
 
+# Debian package configuration for cargo-deb
+[package.metadata.deb]
+maintainer = "Noam Lewis"
+section = "editors"
+priority = "optional"
+depends = "$auto"
+assets = [
+    ["target/release/fresh", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/fresh-editor/", "644"],
+    ["plugins/*", "usr/share/fresh-editor/plugins/", "644"],
+    ["plugins/lib/*", "usr/share/fresh-editor/plugins/lib/", "644"],
+    ["plugins/examples/*", "usr/share/fresh-editor/plugins/examples/", "644"],
+]
+extended-description = """
+Fresh is a lightweight, fast terminal-based text editor with LSP support
+and TypeScript plugins. It provides syntax highlighting, code completion,
+and other IDE-like features in a minimal terminal interface."""
 
+# RPM package configuration for cargo-generate-rpm
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/fresh", dest = "/usr/bin/fresh", mode = "755" },
+    { source = "README.md", dest = "/usr/share/doc/fresh-editor/README.md", mode = "644" },
+    { source = "plugins/*.ts", dest = "/usr/share/fresh-editor/plugins/", mode = "644" },
+    { source = "plugins/*.json", dest = "/usr/share/fresh-editor/plugins/", mode = "644" },
+    { source = "plugins/*.md", dest = "/usr/share/fresh-editor/plugins/", mode = "644" },
+    { source = "plugins/lib/*", dest = "/usr/share/fresh-editor/plugins/lib/", mode = "644" },
+    { source = "plugins/examples/*", dest = "/usr/share/fresh-editor/plugins/examples/", mode = "644" },
+]
