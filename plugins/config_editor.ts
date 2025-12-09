@@ -1048,7 +1048,7 @@ function buildVisibleFields(): ConfigField[] {
           path,
           name: key,
           schema: fieldSchema,
-          value: value ?? defaultValue,
+          value,
           isDefault,
           depth,
           isSection: false,
