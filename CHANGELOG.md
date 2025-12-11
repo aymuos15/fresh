@@ -1,14 +1,14 @@
 # Release Notes
 
-## 0.1.34
+## 0.1.35
 
 ### Features
 
-* **XDG Config Paths**: Support standard XDG config paths for user configuration. On macOS, `~/.config/fresh/config.json` is now prioritized if it exists, in addition to the system default path.
+* **XDG Config Paths**: Support standard XDG config paths for user configuration. On macOS, `~/.config/fresh/config.json` is now prioritized if it exists, in addition to the system default path. (@Yousa-Mirage)
 
 ### Packaging
 
-* **cargo-binstall**: Added cargo-binstall as an installation method in documentation.
+* **cargo-binstall**: Added cargo-binstall as an installation method in documentation. (@dvchd)
 
 * **npm OIDC Publishing**: Switched npm publish to OIDC trusted publishing with provenance attestations.
 
