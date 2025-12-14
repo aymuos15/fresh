@@ -76,7 +76,10 @@ impl SettingItem {
     pub fn item_height(&self) -> u16 {
         // Controls that render their own label don't need extra name line
         let name_height = match &self.control {
-            SettingControl::TextList(_) | SettingControl::Map(_) => 0,
+            SettingControl::Toggle(_)
+            | SettingControl::Number(_)
+            | SettingControl::TextList(_)
+            | SettingControl::Map(_) => 0,
             _ => 1,
         };
         // name line (if needed) + control height + 1 line spacing

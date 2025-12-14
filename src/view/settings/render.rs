@@ -353,7 +353,10 @@ fn render_setting_item(
     // Controls that render their own label don't need the top-level name
     let control_has_own_label = matches!(
         &item.control,
-        SettingControl::TextList(_) | SettingControl::Map(_)
+        SettingControl::Toggle(_)
+            | SettingControl::Number(_)
+            | SettingControl::TextList(_)
+            | SettingControl::Map(_)
     );
 
     // Draw selection or hover highlight background
