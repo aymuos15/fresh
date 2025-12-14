@@ -275,13 +275,17 @@ impl Editor {
         let lsp_waiting = self.pending_completion_request.is_some()
             || self.pending_goto_definition_request.is_some();
 
-        // Hide the hardware cursor when menu is open, file explorer is focused, or in terminal mode
+        // Hide the hardware cursor when menu is open, file explorer is focused, terminal mode,
+        // or settings UI is open
         // (the file explorer will set its own cursor position when focused)
         // (terminal mode renders its own cursor via the terminal emulator)
+        // (settings UI is a modal that doesn't need the editor cursor)
         // This also causes visual cursor indicators in the editor to be dimmed
+        let settings_visible = self.settings_state.as_ref().map_or(false, |s| s.visible);
         let hide_cursor = self.menu_state.active_menu.is_some()
             || self.key_context == KeyContext::FileExplorer
-            || self.terminal_mode;
+            || self.terminal_mode
+            || settings_visible;
 
         // Convert HoverTarget to tab hover info for rendering
         let hovered_tab = match &self.mouse_state.hover_target {
