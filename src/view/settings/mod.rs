@@ -21,4 +21,4 @@ pub mod state;
 pub use layout::{SettingsHit, SettingsLayout};
 pub use render::render_settings;
 pub use search::{search_settings, SearchResult};
-pub use state::SettingsState;
+pub use state::{FocusPanel, SettingsState};

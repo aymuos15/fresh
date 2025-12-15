@@ -824,8 +824,8 @@ The current `plugins/config_editor.ts` provides similar functionality via the pl
 | Confirmation dialog empty | Medium | ✅ Fixed | Dialog height calculation was off by 1, causing changes to overlap with separator. |
 | No button selection indicator | Medium | ✅ Fixed | Added ▶ indicator and bold styling for selected button. |
 | No panel focus indicator | Low | Open | Can't visually tell if categories or settings panel has focus. |
-| Terminal captures input when Settings opens | High | Open | Opening Settings from terminal mode causes keystrokes to go to terminal behind dialog. Must Ctrl+Space first. |
-| Footer buttons inaccessible via keyboard | High | Open | Tab only cycles between category/settings panels. Reset/Save/Cancel buttons cannot be reached with keyboard. |
+| Terminal captures input when Settings opens | High | ✅ Fixed | Added Settings to popup/prompt check in input routing. Also added OpenSettings to terminal UI actions. |
+| Footer buttons inaccessible via keyboard | High | ✅ Fixed | Added FocusPanel enum with Categories/Settings/Footer states. Tab now cycles through all three panels. |
 | Search results unrelated to query | Medium | Open | Searching "font" returns 14 results with no "font" matches. Fuzzy matching too aggressive or broken. |
 | "●" indicator unexplained | Low | Open | Some categories show ● with no explanation. Users don't know if it means unsaved changes, errors, etc. |
 | Left/Right for +/- undiscoverable | Low | Open | Arrow keys increment/decrement number fields but help text only shows "↑↓:Navigate". |

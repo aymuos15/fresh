@@ -1005,6 +1005,7 @@ impl KeybindingResolver {
             action,
             // Global UI actions
             Action::CommandPalette
+                | Action::OpenSettings
                 | Action::MenuActivate
                 | Action::MenuOpen(_)
                 | Action::ShowHelp

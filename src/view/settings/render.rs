@@ -7,9 +7,8 @@ use super::layout::{SettingsHit, SettingsLayout};
 use super::search::SearchResult;
 use super::state::SettingsState;
 use crate::view::controls::{
-    render_button, render_dropdown, render_number_input, render_text_input, render_toggle,
-    ButtonColors, ButtonState, DropdownColors, MapColors, NumberInputColors, TextInputColors,
-    TextListColors, ToggleColors,
+    render_dropdown, render_number_input, render_text_input, render_toggle, DropdownColors,
+    MapColors, NumberInputColors, TextInputColors, TextListColors, ToggleColors,
 };
 use crate::view::theme::Theme;
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -136,6 +135,7 @@ fn render_categories(
     layout: &mut SettingsLayout,
 ) {
     use super::layout::SettingsHit;
+    use super::state::FocusPanel;
 
     for (idx, page) in state.pages.iter().enumerate() {
         if idx as u16 >= area.height {
@@ -149,7 +149,7 @@ fn render_categories(
         layout.add_category(idx, row_area);
 
         let style = if is_selected {
-            if state.category_focus {
+            if state.focus_panel == FocusPanel::Categories {
                 Style::default()
                     .fg(theme.menu_highlight_fg)
                     .bg(theme.menu_highlight_bg)
@@ -187,7 +187,7 @@ fn render_separator(frame: &mut Frame, area: Rect, theme: &Theme) {
 /// Context for rendering a setting item (extracted to avoid borrow issues)
 struct RenderContext {
     selected_item: usize,
-    category_focus: bool,
+    settings_focused: bool,
     hover_hit: Option<SettingsHit>,
 }
 
@@ -241,9 +241,10 @@ fn render_settings_panel(
     state.scroll_panel.update_content_height(&page.items);
 
     // Extract state needed for rendering (to avoid borrow issues with scroll_panel)
+    use super::state::FocusPanel;
     let render_ctx = RenderContext {
         selected_item: state.selected_item,
-        category_focus: state.category_focus,
+        settings_focused: state.focus_panel == FocusPanel::Settings,
         hover_hit: state.hover_hit.clone(),
     };
 
@@ -305,7 +306,7 @@ fn render_setting_item_pure(
     ctx: &RenderContext,
     theme: &Theme,
 ) -> ControlLayoutInfo {
-    let is_selected = !ctx.category_focus && idx == ctx.selected_item;
+    let is_selected = ctx.settings_focused && idx == ctx.selected_item;
 
     // Check if this item or any of its controls is being hovered
     let is_item_hovered = match ctx.hover_hit {
@@ -708,7 +709,7 @@ fn render_footer(
     layout: &mut SettingsLayout,
 ) {
     use super::layout::SettingsHit;
-    use crate::view::controls::FocusState;
+    use super::state::FocusPanel;
 
     let footer_y = modal_area.y + modal_area.height - 2;
     let footer_area = Rect::new(
@@ -731,56 +732,99 @@ fn render_footer(
         sep_area,
     );
 
-    // Buttons on the right side
-    let button_colors = ButtonColors::from_theme(theme);
+    // Check if footer has keyboard focus
+    let footer_focused = state.focus_panel == FocusPanel::Footer;
 
-    // Determine hover states for buttons
+    // Determine hover and keyboard focus states for buttons
+    // Button indices: 0=Reset, 1=Save, 2=Cancel
+    let reset_hovered = matches!(state.hover_hit, Some(SettingsHit::ResetButton));
     let save_hovered = matches!(state.hover_hit, Some(SettingsHit::SaveButton));
     let cancel_hovered = matches!(state.hover_hit, Some(SettingsHit::CancelButton));
-    let reset_hovered = matches!(state.hover_hit, Some(SettingsHit::ResetButton));
 
-    let save_state = ButtonState::new("Save").with_focus(if save_hovered {
-        FocusState::Hovered
-    } else {
-        FocusState::Normal
-    });
-    let cancel_state = ButtonState::new("Cancel").with_focus(if cancel_hovered {
-        FocusState::Hovered
-    } else {
-        FocusState::Normal
-    });
-    let reset_state = ButtonState::new("Reset").with_focus(if reset_hovered {
-        FocusState::Hovered
-    } else {
-        FocusState::Normal
-    });
+    let reset_focused = footer_focused && state.footer_button_index == 0;
+    let save_focused = footer_focused && state.footer_button_index == 1;
+    let cancel_focused = footer_focused && state.footer_button_index == 2;
 
     // Calculate button positions from right
-    let cancel_width = 10; // "[ Cancel ]"
-    let save_width = 8; // "[ Save ]"
-    let reset_width = 9; // "[ Reset ]"
+    // When focused, buttons get a "▶" prefix adding 1 char
+    let cancel_width = if cancel_focused { 11 } else { 10 }; // "▶[ Cancel ]" or "[ Cancel ]"
+    let save_width = if save_focused { 9 } else { 8 }; // "▶[ Save ]" or "[ Save ]"
+    let reset_width = if reset_focused { 10 } else { 9 }; // "▶[ Reset ]" or "[ Reset ]"
     let gap = 2;
 
     let cancel_x = footer_area.x + footer_area.width - cancel_width;
     let save_x = cancel_x - save_width - gap;
     let reset_x = save_x - reset_width - gap;
 
-    // Render buttons
+    // Render buttons with focus indicators
+    // Reset button
     let reset_area = Rect::new(reset_x, footer_y, reset_width, 1);
-    let reset_layout = render_button(frame, reset_area, &reset_state, &button_colors);
-    layout.reset_button = Some(reset_layout.button_area);
+    if reset_focused {
+        let style = Style::default()
+            .fg(theme.menu_highlight_fg)
+            .bg(theme.menu_highlight_bg)
+            .add_modifier(Modifier::BOLD);
+        frame.render_widget(Paragraph::new("▶[ Reset ]").style(style), reset_area);
+    } else if reset_hovered {
+        let style = Style::default()
+            .fg(theme.menu_hover_fg)
+            .bg(theme.menu_hover_bg);
+        frame.render_widget(Paragraph::new("[ Reset ]").style(style), reset_area);
+    } else {
+        frame.render_widget(
+            Paragraph::new("[ Reset ]").style(Style::default().fg(theme.popup_text_fg)),
+            reset_area,
+        );
+    }
+    layout.reset_button = Some(reset_area);
 
+    // Save button
     let save_area = Rect::new(save_x, footer_y, save_width, 1);
-    let save_layout = render_button(frame, save_area, &save_state, &button_colors);
-    layout.save_button = Some(save_layout.button_area);
+    if save_focused {
+        let style = Style::default()
+            .fg(theme.menu_highlight_fg)
+            .bg(theme.menu_highlight_bg)
+            .add_modifier(Modifier::BOLD);
+        frame.render_widget(Paragraph::new("▶[ Save ]").style(style), save_area);
+    } else if save_hovered {
+        let style = Style::default()
+            .fg(theme.menu_hover_fg)
+            .bg(theme.menu_hover_bg);
+        frame.render_widget(Paragraph::new("[ Save ]").style(style), save_area);
+    } else {
+        frame.render_widget(
+            Paragraph::new("[ Save ]").style(Style::default().fg(theme.popup_text_fg)),
+            save_area,
+        );
+    }
+    layout.save_button = Some(save_area);
 
+    // Cancel button
     let cancel_area = Rect::new(cancel_x, footer_y, cancel_width, 1);
-    let cancel_layout = render_button(frame, cancel_area, &cancel_state, &button_colors);
-    layout.cancel_button = Some(cancel_layout.button_area);
+    if cancel_focused {
+        let style = Style::default()
+            .fg(theme.menu_highlight_fg)
+            .bg(theme.menu_highlight_bg)
+            .add_modifier(Modifier::BOLD);
+        frame.render_widget(Paragraph::new("▶[ Cancel ]").style(style), cancel_area);
+    } else if cancel_hovered {
+        let style = Style::default()
+            .fg(theme.menu_hover_fg)
+            .bg(theme.menu_hover_bg);
+        frame.render_widget(Paragraph::new("[ Cancel ]").style(style), cancel_area);
+    } else {
+        frame.render_widget(
+            Paragraph::new("[ Cancel ]").style(Style::default().fg(theme.popup_text_fg)),
+            cancel_area,
+        );
+    }
+    layout.cancel_button = Some(cancel_area);
 
     // Help text on the left
     let help = if state.search_active {
         "Type to search, ↑↓:Navigate  Enter:Jump  Esc:Cancel"
+    } else if footer_focused {
+        "←/→:Select button  Enter:Activate  Tab:Switch panel  Esc:Close"
     } else {
         "↑↓:Navigate  Tab:Switch panel  Enter:Edit  /:Search  Esc:Close"
     };

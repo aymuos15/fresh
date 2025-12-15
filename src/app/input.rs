@@ -38,11 +38,12 @@ impl Editor {
             modifiers
         );
 
-        // Check if we're in a prompt or popup - these take priority over terminal handling
-        // so that command palette, open file dialog, etc. work correctly
+        // Check if we're in a prompt, popup, or settings - these take priority over terminal handling
+        // so that command palette, open file dialog, settings dialog, etc. work correctly
         let in_prompt_or_popup = self.is_prompting()
             || self.active_state().popups.is_visible()
-            || self.menu_state.active_menu.is_some();
+            || self.menu_state.active_menu.is_some()
+            || self.settings_state.as_ref().map_or(false, |s| s.visible);
 
         // Special handling for terminal mode - forward keys directly to terminal
         // unless it's an escape sequence or UI keybinding

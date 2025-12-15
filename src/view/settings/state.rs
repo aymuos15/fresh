@@ -12,6 +12,18 @@ use crate::view::controls::FocusState;
 use crate::view::ui::ScrollablePanel;
 use std::collections::HashMap;
 
+/// Which panel currently has keyboard focus
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FocusPanel {
+    /// Category list (left panel)
+    #[default]
+    Categories,
+    /// Settings items (right panel)
+    Settings,
+    /// Footer buttons (Reset/Save/Cancel)
+    Footer,
+}
+
 /// The state of the settings UI
 #[derive(Debug)]
 pub struct SettingsState {
@@ -23,8 +35,13 @@ pub struct SettingsState {
     pub selected_category: usize,
     /// Currently selected item index within the category
     pub selected_item: usize,
-    /// Whether we're focused on the category list (left panel)
+    /// Which panel currently has keyboard focus
+    pub focus_panel: FocusPanel,
+    /// For backwards compatibility - returns true if focus is on categories
+    #[deprecated(note = "use focus_panel instead")]
     pub category_focus: bool,
+    /// Selected footer button index (0=Reset, 1=Save, 2=Cancel)
+    pub footer_button_index: usize,
     /// Pending changes (path -> new value)
     pub pending_changes: HashMap<String, serde_json::Value>,
     /// The original config value (for detecting changes)
@@ -64,12 +81,15 @@ impl SettingsState {
         let config_value = serde_json::to_value(config)?;
         let pages = super::items::build_pages(&categories, &config_value);
 
+        #[allow(deprecated)]
         Ok(Self {
             categories,
             pages,
             selected_category: 0,
             selected_item: 0,
+            focus_panel: FocusPanel::Categories,
             category_focus: true,
+            footer_button_index: 1, // Default to Save button
             pending_changes: HashMap::new(),
             original_config: config_value,
             visible: false,
@@ -89,9 +109,12 @@ impl SettingsState {
     }
 
     /// Show the settings panel
+    #[allow(deprecated)]
     pub fn show(&mut self) {
         self.visible = true;
+        self.focus_panel = FocusPanel::Categories;
         self.category_focus = true;
+        self.footer_button_index = 1; // Default to Save button
         self.selected_category = 0;
         self.selected_item = 0;
         self.scroll_panel = ScrollablePanel::new();
@@ -130,43 +153,73 @@ impl SettingsState {
 
     /// Move selection up
     pub fn select_prev(&mut self) {
-        if self.category_focus {
-            if self.selected_category > 0 {
-                self.selected_category -= 1;
-                self.selected_item = 0;
-                self.scroll_panel = ScrollablePanel::new();
-                self.sub_focus = None;
+        match self.focus_panel {
+            FocusPanel::Categories => {
+                if self.selected_category > 0 {
+                    self.selected_category -= 1;
+                    self.selected_item = 0;
+                    self.scroll_panel = ScrollablePanel::new();
+                    self.sub_focus = None;
+                }
             }
-        } else if self.selected_item > 0 {
-            self.selected_item -= 1;
-            self.sub_focus = None;
-            self.ensure_visible();
+            FocusPanel::Settings => {
+                if self.selected_item > 0 {
+                    self.selected_item -= 1;
+                    self.sub_focus = None;
+                    self.ensure_visible();
+                }
+            }
+            FocusPanel::Footer => {
+                // Navigate between footer buttons (left)
+                if self.footer_button_index > 0 {
+                    self.footer_button_index -= 1;
+                }
+            }
         }
     }
 
     /// Move selection down
     pub fn select_next(&mut self) {
-        if self.category_focus {
-            if self.selected_category + 1 < self.pages.len() {
-                self.selected_category += 1;
-                self.selected_item = 0;
-                self.scroll_panel = ScrollablePanel::new();
-                self.sub_focus = None;
+        match self.focus_panel {
+            FocusPanel::Categories => {
+                if self.selected_category + 1 < self.pages.len() {
+                    self.selected_category += 1;
+                    self.selected_item = 0;
+                    self.scroll_panel = ScrollablePanel::new();
+                    self.sub_focus = None;
+                }
             }
-        } else if let Some(page) = self.current_page() {
-            if self.selected_item + 1 < page.items.len() {
-                self.selected_item += 1;
-                self.sub_focus = None;
-                self.ensure_visible();
+            FocusPanel::Settings => {
+                if let Some(page) = self.current_page() {
+                    if self.selected_item + 1 < page.items.len() {
+                        self.selected_item += 1;
+                        self.sub_focus = None;
+                        self.ensure_visible();
+                    }
+                }
+            }
+            FocusPanel::Footer => {
+                // Navigate between footer buttons (right)
+                if self.footer_button_index < 2 {
+                    self.footer_button_index += 1;
+                }
             }
         }
     }
 
-    /// Switch focus between category list and settings
+    /// Switch focus between panels: Categories -> Settings -> Footer -> Categories
+    #[allow(deprecated)]
     pub fn toggle_focus(&mut self) {
-        self.category_focus = !self.category_focus;
+        self.focus_panel = match self.focus_panel {
+            FocusPanel::Categories => FocusPanel::Settings,
+            FocusPanel::Settings => FocusPanel::Footer,
+            FocusPanel::Footer => FocusPanel::Categories,
+        };
+        // Keep category_focus in sync for backwards compatibility
+        self.category_focus = self.focus_panel == FocusPanel::Categories;
+
         // Reset item selection when switching to settings
-        if !self.category_focus
+        if self.focus_panel == FocusPanel::Settings
             && self.selected_item >= self.current_page().map_or(0, |p| p.items.len())
         {
             self.selected_item = 0;
@@ -177,7 +230,7 @@ impl SettingsState {
 
     /// Ensure the selected item is visible in the viewport
     pub fn ensure_visible(&mut self) {
-        if self.category_focus {
+        if self.focus_panel != FocusPanel::Settings {
             return;
         }
 
@@ -271,7 +324,7 @@ impl SettingsState {
     pub fn update_focus_states(&mut self) {
         for (page_idx, page) in self.pages.iter_mut().enumerate() {
             for (item_idx, item) in page.items.iter_mut().enumerate() {
-                let is_focused = !self.category_focus
+                let is_focused = self.focus_panel == FocusPanel::Settings
                     && page_idx == self.selected_category
                     && item_idx == self.selected_item;
 
@@ -348,10 +401,12 @@ impl SettingsState {
     }
 
     /// Jump to the currently selected search result
+    #[allow(deprecated)]
     pub fn jump_to_search_result(&mut self) {
         if let Some(result) = self.search_results.get(self.selected_search_result) {
             self.selected_category = result.page_index;
             self.selected_item = result.item_index;
+            self.focus_panel = FocusPanel::Settings;
             self.category_focus = false;
             // Reset scroll offset but preserve viewport for ensure_visible
             self.scroll_panel.scroll.offset = 0;
