@@ -45,9 +45,9 @@ jobs:
       - name: Build release binary (no plugins)
         run: |
           if [ "${{ matrix.target }}" = "aarch64-unknown-linux-musl" ]; then
-            cross build --release --target ${{ matrix.target }} --no-default-features
+            cross build --release --target ${{ matrix.target }} --no-default-features --features runtime
           else
-            cargo build --release --target ${{ matrix.target }} --no-default-features
+            cargo build --release --target ${{ matrix.target }} --no-default-features --features runtime
           fi
 
       - name: Get version from Cargo.toml
