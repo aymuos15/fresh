@@ -107,9 +107,9 @@ pub fn render_settings(
     state: &mut SettingsState,
     theme: &Theme,
 ) -> SettingsLayout {
-    // Calculate modal size (80% of screen, max 100 wide, 40 tall)
+    // Calculate modal size (80% of screen width, 90% height to fill most of available space)
     let modal_width = (area.width * 80 / 100).min(100);
-    let modal_height = (area.height * 80 / 100).min(40);
+    let modal_height = area.height * 90 / 100;
     let modal_x = (area.width.saturating_sub(modal_width)) / 2;
     let modal_y = (area.height.saturating_sub(modal_height)) / 2;
 
@@ -1749,9 +1749,9 @@ fn render_entry_dialog(
         return;
     };
 
-    // Calculate dialog size - slightly smaller than parent
-    let dialog_width = (parent_area.width * 75 / 100).min(80).max(50);
-    let dialog_height = (parent_area.height * 80 / 100).min(30).max(15);
+    // Calculate dialog size - use most of available space for editing
+    let dialog_width = (parent_area.width * 85 / 100).min(90).max(50);
+    let dialog_height = (parent_area.height * 90 / 100).max(15);
     let dialog_x = parent_area.x + (parent_area.width.saturating_sub(dialog_width)) / 2;
     let dialog_y = parent_area.y + (parent_area.height.saturating_sub(dialog_height)) / 2;
 
@@ -1935,13 +1935,13 @@ fn render_entry_dialog(
         let warning_style = Style::default().fg(theme.diagnostic_warning_fg);
         frame.render_widget(Paragraph::new(warning).style(warning_style), help_area);
     } else if has_invalid_json && is_json_control {
-        // JSON control - can press Esc to revert
-        let warning = "⚠ Invalid JSON - press Esc to revert changes";
+        // JSON control with invalid JSON
+        let warning = "⚠ Invalid JSON";
         let warning_style = Style::default().fg(theme.diagnostic_warning_fg);
         frame.render_widget(Paragraph::new(warning).style(warning_style), help_area);
     } else if is_json_control {
         // Editing JSON control
-        let help = "↑↓←→:Move  Enter:Newline  Tab:Save & exit  Esc:Discard";
+        let help = "↑↓←→:Move  Enter:Newline  Tab/Esc:Exit";
         let help_style = Style::default().fg(theme.line_number_fg);
         frame.render_widget(Paragraph::new(help).style(help_style), help_area);
     } else {

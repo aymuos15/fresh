@@ -39,6 +39,13 @@ impl Editor {
                             return Ok(true);
                         }
                     }
+                    MouseEventKind::Drag(MouseButton::Left) => {
+                        // Handle scrollbar drag for entry dialog
+                        return Ok(self.entry_dialog_scrollbar_drag(
+                            mouse_event.column,
+                            mouse_event.row,
+                        ));
+                    }
                     _ => {}
                 }
                 // Consume other events without action
@@ -257,6 +264,54 @@ impl Editor {
                 }
             }
         }
+        false
+    }
+
+    /// Handle scrollbar drag for entry dialog.
+    ///
+    /// Computes the entry dialog scrollbar area based on the modal area
+    /// and scrolls to the position based on the drag y coordinate.
+    fn entry_dialog_scrollbar_drag(&mut self, col: u16, row: u16) -> bool {
+        // Get the modal area from cached layout to compute entry dialog dimensions
+        let modal_area = self
+            .cached_layout
+            .settings_layout
+            .as_ref()
+            .map(|l| l.modal_area)
+            .unwrap_or_default();
+
+        if modal_area.width == 0 || modal_area.height == 0 {
+            return false;
+        }
+
+        // Compute entry dialog area (same logic as render_entry_dialog)
+        let dialog_width = (modal_area.width * 85 / 100).min(90).max(50);
+        let dialog_height = (modal_area.height * 90 / 100).max(15);
+        let dialog_x = modal_area.x + (modal_area.width.saturating_sub(dialog_width)) / 2;
+        let dialog_y = modal_area.y + (modal_area.height.saturating_sub(dialog_height)) / 2;
+
+        // Inner area (content area minus borders and button row)
+        let inner_y = dialog_y + 1;
+        let inner_height = dialog_height.saturating_sub(5); // 1 border + 2 button/help rows + 2 padding
+
+        // Scrollbar is at the right edge of the dialog
+        let scrollbar_x = dialog_x + dialog_width - 3;
+
+        // Check if we're in or near the scrollbar area (allow some horizontal tolerance)
+        let in_scrollbar_x = col >= scrollbar_x.saturating_sub(2) && col <= dialog_x + dialog_width;
+
+        if in_scrollbar_x && inner_height > 0 {
+            let relative_y = row.saturating_sub(inner_y);
+            let ratio = (relative_y as f32 / inner_height as f32).clamp(0.0, 1.0);
+
+            if let Some(ref mut state) = self.settings_state {
+                if let Some(ref mut dialog) = state.entry_dialog {
+                    dialog.scroll_to_ratio(ratio);
+                    return true;
+                }
+            }
+        }
+
         false
     }
 }

@@ -94,16 +94,11 @@ impl SettingsState {
 
         match event.code {
             KeyCode::Esc => {
-                if is_editing_json {
-                    // For JSON editor, always revert on Escape (ignore validation)
-                    dialog.revert_json_and_stop();
-                } else {
-                    // Check if current text field requires JSON validation
-                    if !can_exit {
-                        return InputResult::Consumed;
-                    }
-                    dialog.stop_editing();
+                // Escape accepts changes (same as Tab) - exit editing mode
+                if !can_exit {
+                    // If validation fails, just stop editing anyway (accept whatever is there)
                 }
+                dialog.stop_editing();
             }
             KeyCode::Enter => {
                 if is_editing_json {

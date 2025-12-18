@@ -312,6 +312,43 @@ impl EntryDialogState {
         }
     }
 
+    /// Ensure the cursor within a JSON editor is visible
+    ///
+    /// When editing a multiline JSON control, this adjusts scroll_offset
+    /// to keep the cursor row visible within the viewport.
+    pub fn ensure_cursor_visible(&mut self) {
+        if !self.editing_text || self.focus_on_buttons {
+            return;
+        }
+
+        // Get cursor row from current item (if it's a JSON editor)
+        let cursor_row = if let Some(item) = self.items.get(self.selected_item) {
+            if let SettingControl::Json(state) = &item.control {
+                state.cursor_pos().0
+            } else {
+                return; // Not a JSON editor
+            }
+        } else {
+            return;
+        };
+
+        // Calculate absolute position of cursor row in content:
+        // item_offset + 1 (for label row) + cursor_row
+        let item_offset = self.selected_item_offset();
+        let cursor_content_row = item_offset + 1 + cursor_row;
+
+        let viewport_height = self.viewport_height;
+
+        // If cursor is above viewport, scroll up
+        if cursor_content_row < self.scroll_offset {
+            self.scroll_offset = cursor_content_row;
+        }
+        // If cursor is below viewport, scroll down
+        else if cursor_content_row >= self.scroll_offset + viewport_height {
+            self.scroll_offset = cursor_content_row.saturating_sub(viewport_height) + 1;
+        }
+    }
+
     /// Scroll up by one line
     pub fn scroll_up(&mut self) {
         self.scroll_offset = self.scroll_offset.saturating_sub(1);
@@ -323,6 +360,17 @@ impl EntryDialogState {
         if self.scroll_offset < max_scroll {
             self.scroll_offset += 1;
         }
+    }
+
+    /// Scroll to a position based on ratio (0.0 = top, 1.0 = bottom)
+    ///
+    /// Used for scrollbar drag operations.
+    pub fn scroll_to_ratio(&mut self, ratio: f32) {
+        let max_scroll = self
+            .total_content_height()
+            .saturating_sub(self.viewport_height);
+        let new_offset = (ratio * max_scroll as f32).round() as usize;
+        self.scroll_offset = new_offset.min(max_scroll);
     }
 
     /// Start text editing mode for the current control
@@ -489,6 +537,7 @@ impl EntryDialogState {
                 state.move_up();
             }
         }
+        self.ensure_cursor_visible();
     }
 
     /// Handle cursor up with selection (Shift+Up)
@@ -501,6 +550,7 @@ impl EntryDialogState {
                 state.editor.move_up_selecting();
             }
         }
+        self.ensure_cursor_visible();
     }
 
     /// Handle cursor down (for multiline controls)
@@ -513,6 +563,7 @@ impl EntryDialogState {
                 state.move_down();
             }
         }
+        self.ensure_cursor_visible();
     }
 
     /// Handle cursor down with selection (Shift+Down)
@@ -525,6 +576,7 @@ impl EntryDialogState {
                 state.editor.move_down_selecting();
             }
         }
+        self.ensure_cursor_visible();
     }
 
     /// Insert newline in JSON editor
