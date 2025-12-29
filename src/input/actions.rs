@@ -2168,6 +2168,8 @@ pub fn action_to_events(
         | Action::FindInSelection
         | Action::FindNext
         | Action::FindPrevious
+        | Action::FindSelectionNext
+        | Action::FindSelectionPrevious
         | Action::Replace
         | Action::QueryReplace
         | Action::MenuActivate
