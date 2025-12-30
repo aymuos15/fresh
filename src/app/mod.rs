@@ -81,7 +81,9 @@ use crate::model::event::{Event, EventLog, SplitDirection, SplitId};
 use crate::services::async_bridge::{AsyncBridge, AsyncMessage};
 use crate::services::fs::{FsBackend, FsManager, LocalFsBackend};
 use crate::services::lsp::manager::{detect_language, LspManager};
-use crate::services::plugins::api::{BufferSavedDiff, PluginCommand};
+#[cfg(feature = "plugins")]
+use crate::services::plugins::api::BufferSavedDiff;
+use crate::services::plugins::api::PluginCommand;
 use crate::services::plugins::PluginManager;
 use crate::services::recovery::{RecoveryConfig, RecoveryService};
 use crate::services::time_source::{RealTimeSource, SharedTimeSource};

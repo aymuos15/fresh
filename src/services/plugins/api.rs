@@ -32,7 +32,7 @@ pub enum PluginResponse {
     /// Response to RequestHighlights
     HighlightsComputed {
         request_id: u64,
-        spans: Vec<crate::services::plugins::runtime::TsHighlightSpan>,
+        spans: Vec<TsHighlightSpan>,
     },
     /// Response to GetBufferText with the text content
     BufferText {
@@ -740,6 +740,16 @@ pub struct ActionPopupAction {
     pub id: String,
     /// Display text for the button (can include command hints)
     pub label: String,
+}
+
+/// Syntax highlight span for a buffer range
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TsHighlightSpan {
+    pub start: u32,
+    pub end: u32,
+    pub color: (u8, u8, u8),
+    pub bold: bool,
+    pub italic: bool,
 }
 
 /// Plugin API context - provides safe access to editor functionality

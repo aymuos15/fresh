@@ -127,20 +127,6 @@ interface TsLineDiff {
 }
 ```
 
-### TsHighlightSpan
-
-Syntax highlighting span for plugins
-
-```typescript
-interface TsHighlightSpan {
-  start: number;
-  end: number;
-  color: [number, number, number];
-  bold: boolean;
-  italic: boolean;
-}
-```
-
 ### SelectionRange
 
 Selection range

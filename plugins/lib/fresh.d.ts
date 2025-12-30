@@ -146,15 +146,6 @@ interface TsLineDiff {
   changed_lines: [number, number][];
 }
 
-/** Syntax highlighting span for plugins */
-interface TsHighlightSpan {
-  start: number;
-  end: number;
-  color: [number, number, number];
-  bold: boolean;
-  italic: boolean;
-}
-
 /** Selection range */
 interface SelectionRange {
   /** Start byte position */

@@ -598,7 +598,7 @@ impl Editor {
                         ratatui::style::Color::Rgb(r, g, b) => (r, g, b),
                         _ => (128, 128, 128), // fallback for indexed colors
                     };
-                    crate::services::plugins::runtime::TsHighlightSpan {
+                    crate::services::plugins::api::TsHighlightSpan {
                         start: s.range.start as u32,
                         end: s.range.end as u32,
                         color,

@@ -1709,15 +1709,8 @@ struct TsLineDiff {
     changed_lines: Vec<(u32, u32)>,
 }
 
-/// Syntax highlighting span for plugins
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct TsHighlightSpan {
-    pub start: u32,
-    pub end: u32,
-    pub color: (u8, u8, u8),
-    pub bold: bool,
-    pub italic: bool,
-}
+// Re-export TsHighlightSpan from api module for backwards compatibility
+pub use crate::services::plugins::api::TsHighlightSpan;
 
 /// Compute syntax highlighting for a buffer range
 #[op2(async)]
