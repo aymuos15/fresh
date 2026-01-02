@@ -52,6 +52,7 @@
             (lib.fileset.fileFilter (file: file.hasExt "sublime-syntax") unfilteredRoot)
             ./docs
             ./keymaps
+            ./locales
             ./plugins
             ./queries
             ./tests
