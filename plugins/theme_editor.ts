@@ -1415,6 +1415,26 @@ globalThis.onThemeEditorLinesChanged = function(data: {
 
 editor.on("lines_changed", "onThemeEditorLinesChanged");
 
+/**
+ * Handle buffer_closed event to reset state when buffer is closed by any means
+ */
+globalThis.onThemeEditorBufferClosed = function(data: {
+  buffer_id: number;
+}): void {
+  if (state.bufferId !== null && data.buffer_id === state.bufferId) {
+    // Reset state when our buffer is closed
+    editor.setContext("theme-editor", false);
+    state.isOpen = false;
+    state.bufferId = null;
+    state.splitId = null;
+    state.themeData = {};
+    state.originalThemeData = {};
+    state.hasChanges = false;
+  }
+};
+
+editor.on("buffer_closed", "onThemeEditorBufferClosed");
+
 // =============================================================================
 // Smart Navigation - Skip Non-Selectable Lines
 // =============================================================================
